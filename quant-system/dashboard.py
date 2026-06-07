@@ -1430,23 +1430,43 @@ with tabs[0]:
         else:
             _br_status_msg = f"VIX {_brief_vix:.1f} 안정 — 전략 전면 가동. 스나이퍼는 정액 {_brief_sn_fixed:,}원 독립 스캘핑."
 
-        st.markdown(
-            f"<div style='background:{_br_bg};border-left:5px solid {_br_clr};"
-            f"border-radius:10px;padding:1rem 1.4rem;margin-bottom:0.6rem;'>"
-            f"<div style='display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;'>"
-            f"<span style='font-size:1.1rem;'>🌅</span>"
-            f"<span style='color:{_br_clr};font-weight:700;font-size:0.9rem;letter-spacing:0.04em;'>"
-            f"비서실장 브리핑</span>"
-            f"<span style='margin-left:auto;background:{_br_clr}22;color:{_br_clr};"
-            f"border-radius:20px;padding:0.15rem 0.7rem;font-size:0.75rem;font-weight:700;'>"
-            f"{_br_icon} {_brief_regime_name} 레짐</span></div>"
-            f"<div style='color:#e2e8f0;font-size:0.85rem;line-height:1.6;'>"
-            f"<b>시장 상태:</b> {_br_status_msg}<br>"
-            f"<b>자산 배분:</b> {_br_alloc_txt}<br>"
-            f"<b>지표:</b> MA배열={_brief_ma} · MACD={_brief_macd} · 신뢰도={_brief_conf:.0%}"
-            f"</div></div>",
-            unsafe_allow_html=True,
+        # ── 자연어 브리핑 + Ground Truth 패널 ──────────────────────────
+        try:
+            from ChiefOfStaff import get_regime_memo as _grm
+            _nl_brief, _gt = _grm(
+                vix=_brief_vix,
+                ma_alignment=str(_brief_ma),
+                macd_signal=str(_brief_macd),
+                regime=_brief_regime_name,
+                confidence=_brief_conf,
+            )
+        except Exception:
+            _nl_brief = _br_status_msg
+            _gt = {
+                "VIX": _brief_vix, "MA_Alignment": _brief_ma,
+                "MACD_Signal": _brief_macd, "Regime": _brief_regime_name,
+                "Confidence": _brief_conf,
+            }
+
+        _brief_msg = (
+            f"**🌅 비서실장 시황 브리핑 — {_br_icon} {_brief_regime_name} 레짐**\n\n"
+            f"{_nl_brief}\n\n"
+            f"📌 **자산 배분:** {_br_alloc_txt}"
         )
+        if _brief_regime_name == "전시":
+            st.error(_brief_msg)
+        elif _brief_regime_name == "방어":
+            st.warning(_brief_msg)
+        else:
+            st.info(_brief_msg)
+
+        import json as _json_m
+        with st.expander("🔍 기술적 지표 원문 (Ground Truth) 보기", expanded=False):
+            st.caption(
+                "아래는 위 브리핑을 생성한 실제 계산 수치입니다. "
+                "자연어 문장과 1:1 대응되므로 할루시네이션 여부를 직접 교차 검증할 수 있습니다."
+            )
+            st.code(_json_m.dumps(_gt, ensure_ascii=False, indent=2), language="json")
         # 카카오톡 아침 브리핑 발송 버튼
         if _u.get("kakao_notify") and _u.get("kakao_access_token"):
             if st.button("📱 카카오톡으로 아침 브리핑 발송", key="btn_kakao_brief"):
@@ -2138,15 +2158,31 @@ with tabs[2]:
         else:
             st.warning(f"⚠️ 거래 정지 중 — {live['reason']}")
 
-        with st.expander("🔍 기술적 지표 원문 보기"):
-            st.code(
-                f"VIX        = {sig.vix:.2f}  ({sig.vix_signal})\n"
-                f"MA 배열    = {sig.ma_alignment}\n"
-                f"MACD       = {sig.macd_signal}\n"
-                f"레짐       = {sig.regime.value}  (신뢰도 {sig.confidence:.1%})\n"
-                f"분석 노트  = {sig.notes}",
-                language="text",
+        with st.expander("🔍 기술적 지표 원문 (Ground Truth) 보기"):
+            st.caption(
+                "아래는 위 브리핑을 생성한 실제 계산 수치입니다. "
+                "자연어 문장과 1:1 대응되므로 할루시네이션 여부를 직접 교차 검증할 수 있습니다."
             )
+            try:
+                from ChiefOfStaff import get_regime_memo as _t3_grm
+                _, _t3_gt = _t3_grm(
+                    vix=sig.vix,
+                    ma_alignment=sig.ma_alignment,
+                    macd_signal=sig.macd_signal,
+                    regime=sig.regime.value,
+                    confidence=sig.confidence,
+                )
+                _t3_gt["VIX_Signal"] = sig.vix_signal
+                _t3_gt["Notes"] = sig.notes
+            except Exception:
+                _t3_gt = {
+                    "VIX": sig.vix, "VIX_Signal": sig.vix_signal,
+                    "MA_Alignment": sig.ma_alignment, "MACD_Signal": sig.macd_signal,
+                    "Regime": sig.regime.value, "Confidence": sig.confidence,
+                    "Notes": sig.notes,
+                }
+            import json as _t3_json
+            st.code(_t3_json.dumps(_t3_gt, ensure_ascii=False, indent=2), language="json")
 
         st.markdown("---")
         st.markdown("### 에이전트 예산 배분")

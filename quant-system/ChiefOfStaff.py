@@ -129,6 +129,118 @@ def get_regime_briefing(
     return f"대표님, {body}\n\n{action}{conf_text}"
 
 
+def get_regime_memo(
+    vix: float,
+    ma_alignment: str,
+    macd_signal: str,
+    regime: str,
+    confidence: float,
+) -> tuple[str, dict]:
+    """
+    RegimeTranslator: 비서실장 자연어 브리핑 + Ground Truth 원본 데이터를 함께 반환.
+    할루시네이션 방지 원칙: 외부 LLM 자유 생성 없음. 파이썬 연산 결과에
+    매칭되는 조건문(If-Else) 기반 텍스트 템플릿만 조합.
+
+    Returns
+    -------
+    briefing : str
+        자연어 브리핑 문자열 (get_regime_briefing 위임)
+    ground_truth : dict
+        브리핑 생성의 뼈대가 된 실제 Raw Data — 가감 없이 노출
+    """
+    briefing = get_regime_briefing(vix, ma_alignment, macd_signal, regime, confidence)
+
+    if vix >= 30:
+        vix_level = "극단적 공포 (≥30) ← VIX 하드룰 서킷브레이커 발동"
+    elif vix >= 20:
+        vix_level = "경계 구간 (20~30) — 변동성 경고"
+    else:
+        vix_level = "안정 구간 (<20) — 정상 운용"
+
+    if confidence >= 0.80:
+        conf_label = "매우 확실 (≥80%)"
+    elif confidence >= 0.60:
+        conf_label = "보통 (60~80%)"
+    else:
+        conf_label = "혼조 신호 (<60%) — 보수적 판단 권장"
+
+    ground_truth = {
+        "VIX": round(vix, 2),
+        "VIX_Level": vix_level,
+        "Circuit_Breaker_Triggered": vix >= 30,
+        "MA_Alignment": ma_alignment,
+        "MACD_Signal": macd_signal,
+        "Regime": regime,
+        "Confidence": round(confidence, 4),
+        "Confidence_Label": conf_label,
+        "Analysis_At": datetime.now().isoformat(timespec="seconds"),
+    }
+    return briefing, ground_truth
+
+
+def get_daily_performance_briefing(trades_today: list) -> str:
+    """
+    장 마감 후(15:32~) 4대 에이전트 당일 활약상 요약 브리핑.
+    할루시네이션 방지: 조건문 기반 텍스트 템플릿만 사용 — LLM 없음.
+
+    Parameters
+    ----------
+    trades_today : list[dict]
+        당일 체결된 거래 목록. 각 dict에 agent_name, action, total_amount 필요.
+    """
+    agent_display = {
+        "value_finder": "💎 밸류파인더",
+        "trend_rider":  "📈 트렌드라이더",
+        "swing_master": "🔄 스윙마스터",
+        "micro_sniper": "🎯 마이크로스나이퍼",
+    }
+
+    today_str = datetime.now().strftime("%Y년 %m월 %d일")
+    lines: list[str] = [f"📊 **비서실장 일일 마감 보고** — {today_str}"]
+    total_realized = 0.0
+    any_activity   = False
+
+    for ak, aname in agent_display.items():
+        ag_trades = [t for t in trades_today if t.get("agent_name") == ak]
+        buys      = [t for t in ag_trades if t.get("action") == "BUY"]
+        sells     = [t for t in ag_trades if t.get("action") == "SELL"]
+        buy_amt   = sum(t.get("total_amount", 0) for t in buys)
+        sell_amt  = sum(t.get("total_amount", 0) for t in sells)
+        realized  = sell_amt - buy_amt
+
+        if not ag_trades:
+            verdict = "오늘 매매 신호 없음 — 관망 유지"
+        else:
+            any_activity = True
+            buy_desc  = f"매수 {len(buys)}건 ({buy_amt:,.0f}원)" if buys else ""
+            sell_desc = f"매도 {len(sells)}건 ({sell_amt:,.0f}원)" if sells else ""
+            activity  = " / ".join(x for x in [buy_desc, sell_desc] if x)
+
+            if realized > 0:
+                verdict = f"{activity} → 실현 이익 **+{realized:,.0f}원** ✅"
+            elif realized < 0:
+                verdict = f"{activity} → 실현 손실 **{realized:,.0f}원** ⚠️"
+            else:
+                verdict = f"{activity} → 포지션 보유 중"
+
+        total_realized += realized
+        lines.append(f"  {aname}: {verdict}")
+
+    lines.append("")
+    if not any_activity:
+        lines.append("📌 오늘은 매매 조건을 충족한 종목이 없어 전 에이전트가 관망했습니다.")
+    elif total_realized > 0:
+        lines.append(f"✅ 당일 총 실현 이익: **+{total_realized:,.0f}원** — 목표 달성")
+    elif total_realized < 0:
+        lines.append(f"⚠️ 당일 총 실현 손실: **{total_realized:,.0f}원** — 내일 재기를 기약합니다")
+    else:
+        lines.append("💼 당일 포지션 보유 중 — 미실현 손익으로 계상됩니다")
+
+    lines.append("")
+    lines.append("— 이상, 비서실장 마감 보고였습니다.")
+    return "\n".join(lines)
+
+
 class MarketRegimeAnalyzer:
     """시장 상태(레짐)를 분석하는 핵심 분석기"""
 

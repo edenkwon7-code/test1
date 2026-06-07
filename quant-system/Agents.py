@@ -21,6 +21,80 @@ from DARTClient import get_dart_client
 logger = logging.getLogger(__name__)
 
 
+class TradeTranslator:
+    """
+    TradeTranslator — 친절한 매매 번역기.
+    에이전트가 매수/매도할 때 전문 용어 대신 일상어로 번역된 문장을 생성합니다.
+    할루시네이션 방지: 조건문(If-Else) 기반 텍스트 템플릿만 사용 — LLM 없음.
+    """
+
+    # ── 밸류파인더 ─────────────────────────────────────────────────────
+    @staticmethod
+    def value_finder_buy(magic_rank: float, f_score: int, earnings_yield: float, roic: float) -> str:
+        quality = f"재무 우량주(F-스코어 {f_score}/5점)" if f_score >= 4 else f"재무 양호주(F-스코어 {f_score}/5점)"
+        ey_desc = f"이익수익률 {earnings_yield:.1%}" if earnings_yield > 0 else "고이익률"
+        roic_desc = f"ROIC {roic:.1%}" if roic > 0 else "높은 자본효율"
+        return (
+            f"마법공식 {magic_rank:.0f}위 · {quality} 발굴 — "
+            f"{ey_desc}·{roic_desc} 저평가 구간 진입으로 장기 가치 투자 매수"
+        )
+
+    @staticmethod
+    def value_finder_sell(pnl_pct: float) -> str:
+        if pnl_pct > 0:
+            return f"목표 수익 달성 (+{pnl_pct:.1%}) — 저평가 해소 판단, 차익 실현 매도"
+        else:
+            return f"손절 한도 도달 ({pnl_pct:.1%}) — 가치 훼손 우려, 리스크 관리 매도"
+
+    # ── 트렌드라이더 ───────────────────────────────────────────────────
+    @staticmethod
+    def trend_rider_buy(vol_ratio: float, macd_val: float) -> str:
+        vol_desc = f"거래량 {vol_ratio:.1f}배 폭증" if vol_ratio >= 2.0 else f"거래량 {vol_ratio:.1f}배 증가"
+        macd_desc = f"MACD +{macd_val:.3f} 양수" if macd_val >= 0 else "MACD 상승"
+        return (
+            f"골든크로스 확인 + {macd_desc} + {vol_desc} — "
+            f"3중 AND 조건 동시 충족, 강한 상승 추세 추종 매수"
+        )
+
+    @staticmethod
+    def trend_rider_sell(pnl_pct: float) -> str:
+        if pnl_pct > 0:
+            return f"추세 이탈 신호 감지 — +{pnl_pct:.1%} 실현 이익 확정 매도"
+        else:
+            return f"데드크로스 돌입·추세 반전 — {pnl_pct:.1%} 손절 기준 도달 매도"
+
+    # ── 스윙마스터 ─────────────────────────────────────────────────────
+    @staticmethod
+    def swing_master_buy(rsi: float, bb_pct: float, upside: float) -> str:
+        panic_level = "극도의 공포" if rsi <= 25 else "강한 공포"
+        bb_desc = "볼린저 하단 이탈(급락 과잉 반응)" if bb_pct <= 0 else f"볼린저 하단 근접(BB%={bb_pct:.2f})"
+        return (
+            f"과도한 공포로 인한 급락 후 반등 시도로 매수 — "
+            f"{panic_level}(RSI {rsi:.0f} 과매도) + {bb_desc}, "
+            f"반등 여력 {upside:.1%}"
+        )
+
+    @staticmethod
+    def swing_master_sell(pnl_pct: float, rsi: float = 0.0) -> str:
+        if pnl_pct > 0:
+            hot_desc = f"단기 과열 국면 진입(RSI {rsi:.0f})" if rsi >= 65 else "반등 목표 도달"
+            return f"{hot_desc}으로 매도하여 +{pnl_pct:.1%} 실현 이익 달성"
+        else:
+            return f"반등 실패 확인 — {pnl_pct:.1%} 손절 기준 도달 매도"
+
+    # ── 공통 (제네릭) ──────────────────────────────────────────────────
+    @staticmethod
+    def generic_buy(agent_name: str, ticker: str, reason: str) -> str:
+        return f"[{agent_name}] {ticker} 매수 — {reason}"
+
+    @staticmethod
+    def generic_sell(agent_name: str, ticker: str, pnl_pct: float) -> str:
+        if pnl_pct > 0:
+            return f"[{agent_name}] {ticker} 매도 — +{pnl_pct:.1%} 수익 실현"
+        else:
+            return f"[{agent_name}] {ticker} 매도 — {pnl_pct:.1%} 손실 손절"
+
+
 @dataclass
 class TradeSignal:
     ticker: str
@@ -244,7 +318,13 @@ class ValueFinderAgent(BaseAgent):
 
         for item in top_stocks:
             reason = (
-                f"마법공식순위={item['magic_rank']:.0f} | "
+                TradeTranslator.value_finder_buy(
+                    magic_rank=item["magic_rank"],
+                    f_score=int(item["f_score"]),
+                    earnings_yield=item.get("earnings_yield", 0.0),
+                    roic=item.get("roic", 0.0),
+                )
+                + f"\n[원본] 마법공식순위={item['magic_rank']:.0f} | "
                 f"F스코어={item['f_score']}/5 | "
                 f"이익수익률={item['earnings_yield']:.2%} | "
                 f"ROIC={item['roic']:.2%} | "
@@ -437,7 +517,10 @@ class TrendRiderAgent(BaseAgent):
                 f"[트렌드라이더] ✅ {ticker} 3중조건충족 | 점수={score:.2f} | "
                 + " | ".join(reasons)
             )
-            buy_candidates.append({"ticker": ticker, "score": score, "reasons": reasons})
+            buy_candidates.append({
+                "ticker": ticker, "score": score, "reasons": reasons,
+                "vol_ratio": vol_ratio, "macd_val": macd_val,
+            })
 
         logger.info(
             f"[트렌드라이더] 필터링 결과 | "
@@ -458,7 +541,13 @@ class TrendRiderAgent(BaseAgent):
                     action="BUY",
                     agent_name=self.agent_name,
                     score=cand["score"],
-                    reason=" | ".join(cand["reasons"]),
+                    reason=(
+                        TradeTranslator.trend_rider_buy(
+                            vol_ratio=cand.get("vol_ratio", 1.5),
+                            macd_val=cand.get("macd_val", 0.0),
+                        )
+                        + "\n[원본] " + " | ".join(cand["reasons"])
+                    ),
                     target_pct=per_stock_budget / budget if budget > 0 else 0,
                     timestamp=datetime.now(),
                 )
@@ -597,8 +686,15 @@ class SwingMasterAgent(BaseAgent):
                     action="BUY",
                     agent_name=self.agent_name,
                     score=cand["score"],
-                    reason=" | ".join(cand["reasons"])
-                    + f" | 목표가={cand['target_price']:.2f}(상승여력={cand['upside']:.2%})",
+                    reason=(
+                        TradeTranslator.swing_master_buy(
+                            rsi=cand["rsi"],
+                            bb_pct=cand["bb_pct"],
+                            upside=cand["upside"],
+                        )
+                        + "\n[원본] " + " | ".join(cand["reasons"])
+                        + f" | 목표가={cand['target_price']:.2f}(상승여력={cand['upside']:.2%})"
+                    ),
                     target_pct=per_stock_budget / budget if budget > 0 else 0,
                     timestamp=datetime.now(),
                 )

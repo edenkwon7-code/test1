@@ -805,6 +805,15 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # 로그아웃 — 사용자 정보 바로 아래
+    if st.button("🚪 로그아웃", use_container_width=True, key="sidebar_logout_top"):
+        st.session_state["logged_in"]  = False
+        st.session_state["user"]       = None
+        st.session_state["control_center_mode"] = False
+        st.session_state.pop("impersonate_uid", None)
+        st.session_state.config["system"]["mode"] = "paper"
+        st.rerun()
+
     mode = config["system"]["mode"].upper()
     mode_color = "#10b981" if mode == "PAPER" else "#ef4444"
 

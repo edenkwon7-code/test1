@@ -469,7 +469,7 @@ def _show_login_page():
     _first_user_note = f'<div style="font-size:0.7rem;color:#64748b;margin-top:0.75rem;">첫 번째 로그인 사용자는 자동으로 관리자로 지정됩니다.</div>' if db.count_users() == 0 else ''
     _kakao_btn_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:transparent;">
       <div style="margin-top:1rem;display:flex;flex-direction:column;align-items:center;gap:0.5rem;">
-        <button onclick="window.top.location.href='{_auth_url}'"
+        <button onclick="window.open('{_auth_url}','_blank')"
            style="display:inline-flex;align-items:center;gap:10px;
                   background:#FEE500;color:#000;font-size:16px;font-weight:800;
                   padding:15px 40px;border-radius:12px;cursor:pointer;

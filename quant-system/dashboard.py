@@ -4813,7 +4813,7 @@ with tabs[8]:
                     st.error(f"출금 실패: {_we}")
 
     # ── 오늘 입출금 내역 ─────────────────────────────────────────
-    _today_cf = db.get_daily_cash_flow(datetime.now().strftime("%Y-%m-%d"))
+    _today_cf = db.get_daily_cash_flow(datetime.now().strftime("%Y-%m-%d"), mode=_cur_mode)
     if _today_cf != 0:
         _cf_color = "#34d399" if _today_cf > 0 else "#f87171"
         _cf_label = "순입금" if _today_cf > 0 else "순출금"
@@ -4969,13 +4969,32 @@ st.markdown(
 with tabs[9]:
 
     # ── 헬스체크 공통 데이터 수집 ─────────────────────────────
+    import os as _hc_os
     _hc_today   = datetime.now().strftime("%Y-%m-%d")
+    _hc_is_live = (_cur_mode == "live")
+    _hc_kis_key_set = bool(
+        _hc_os.getenv("KIS_APP_KEY")
+        or config.get("broker", {}).get("live", {}).get("app_key", "")
+    )
+
     _hc_port    = db.get_portfolio(_cur_mode)
-    _hc_total   = _hc_port.get("total_capital", config["paper_trading"]["initial_capital"])
+    # 초기자본 fallback: DB 사용자 초기자본 → 모드별 config → 기본값
+    try:
+        _hc_u_list  = db.get_all_users()
+        _hc_u0      = _hc_u_list[0] if _hc_u_list else {}
+    except Exception:
+        _hc_u0 = {}
+    _hc_default_cap = (
+        config.get("live", {}).get("initial_capital")
+        if _hc_is_live
+        else config.get("paper_trading", {}).get("initial_capital", 100_000_000)
+    ) or 100_000_000
+    _hc_init_cap = float(_hc_u0.get("initial_capital") or _hc_default_cap)
+    _hc_total   = _hc_port.get("total_capital", _hc_init_cap)
     _hc_cash    = _hc_port.get("cash", _hc_total)
     _hc_invested= _hc_port.get("invested", 0)
     _hc_daily_pnl_pct = _hc_port.get("daily_pnl_pct", 0.0)
-    _hc_cf      = db.get_daily_cash_flow(_hc_today)
+    _hc_cf      = db.get_daily_cash_flow(_hc_today, mode=_cur_mode)
     _hc_ks_info   = db.get_kill_switch()
     _hc_ks_on     = _hc_ks_info.get("emergency_stop", False)
     _hc_ks_reason = _hc_ks_info.get("kill_switch_reason", "")
@@ -4998,19 +5017,37 @@ with tabs[9]:
         _hc_ks_on
     )
 
+    # ── 헤더 (모드 배지 포함) ────────────────────────────────
+    _hc_mode_badge_color = "#ef4444" if _hc_is_live else "#10b981"
+    _hc_mode_label       = "실전투자 LIVE" if _hc_is_live else "모의투자 PAPER"
     st.markdown(
         "<h2 style='font-size:1.4rem;font-weight:800;margin-bottom:0.25rem'>"
         "💻 시스템 헬스체크 및 성능 검증 패널</h2>"
-        "<p style='color:#64748b;font-size:0.85rem;margin-top:0;margin-bottom:1.5rem'>"
+        f"<p style='color:#64748b;font-size:0.85rem;margin-top:0;margin-bottom:1.5rem'>"
         f"마지막 갱신: {datetime.now().strftime('%H:%M:%S')} &nbsp;·&nbsp; "
-        f"모드: <b>{'실전' if _cur_mode == 'live' else '모의투자'}</b> "
-        f"&nbsp;·&nbsp; 기준일: {_hc_today}</p>",
+        f"<span style='background:{_hc_mode_badge_color};color:#fff;font-weight:700;"
+        f"padding:1px 8px;border-radius:6px;font-size:0.8rem'>{_hc_mode_label}</span>"
+        f"&nbsp;·&nbsp; 기준일: {_hc_today} &nbsp;·&nbsp; "
+        f"기준자산: <b>{_hc_total:,.0f}원</b></p>",
         unsafe_allow_html=True,
     )
 
-    # ── 코드 감사 결과 요약 배너 ────────────────────────────────
+    # ── 코드 감사 결과 요약 배너 (모드·KIS 설정에 따라 동적 갱신) ────
+    _audit_ws_color = "#4ade80" if (_hc_is_live and _hc_kis_key_set) else "#f59e0b"
+    _audit_ws_icon  = "✅" if (_hc_is_live and _hc_kis_key_set) else "🔧"
+    _audit_ws_text  = (
+        "WS Watchdog 타임스탬프 — KIS 연결 활성"
+        if (_hc_is_live and _hc_kis_key_set)
+        else "WS Watchdog 타임스탬프 — KIS 자격증명 설정 후 활성화"
+    )
+    _audit_live_note = (
+        f"<div style='color:#94a3b8;font-size:0.75rem;margin-top:0.6rem;padding-top:0.5rem;"
+        f"border-top:1px solid #1e293b'>"
+        f"현재 운용 모드: <b style='color:{_hc_mode_badge_color}'>{_hc_mode_label}</b> "
+        f"&nbsp;·&nbsp; 위 항목들은 모의/실전 전환 후에도 동일하게 적용됩니다.</div>"
+    )
     st.markdown(
-        """
+        f"""
         <div style='background:#0f172a;border:1px solid #334155;border-radius:12px;
                     padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.82rem;'>
           <div style='color:#94a3b8;font-weight:700;margin-bottom:0.5rem;font-size:0.9rem;'>
@@ -5020,7 +5057,7 @@ with tabs[9]:
             <div style='color:#4ade80'>✅ KIS REST API + 주도주서치</div>
             <div style='color:#4ade80'>✅ WebSocket 40종목 한도</div>
             <div style='color:#4ade80'>✅ 초당 18건 Rate Limiter</div>
-            <div style='color:#4ade80'>✅ daily_net_cash_flow 킬스위치 보정</div>
+            <div style='color:#4ade80'>✅ daily_net_cash_flow 킬스위치 보정 (mode 분리)</div>
             <div style='color:#4ade80'>✅ 일일 MDD -5% 자동 킬스위치</div>
             <div style='color:#4ade80'>✅ Max Exposure 35% 신규 구현 ✨</div>
             <div style='color:#4ade80'>✅ 1차 서킷브레이커(VIX≥30/역배열)</div>
@@ -5031,8 +5068,9 @@ with tabs[9]:
             <div style='color:#4ade80'>✅ 결정론적 브리핑 (LLM 개입=False)</div>
             <div style='color:#4ade80'>✅ 소르티노 &lt;0.2 영구배제</div>
             <div style='color:#4ade80'>✅ F-스코어 ≥ 3 필터링</div>
-            <div style='color:#f59e0b'>🔧 WS Watchdog 타임스탬프 — KIS 자격증명 설정 후 활성화</div>
+            <div style='color:{_audit_ws_color}'>{_audit_ws_icon} {_audit_ws_text}</div>
           </div>
+          {_audit_live_note}
         </div>
         """,
         unsafe_allow_html=True,
@@ -5049,10 +5087,8 @@ with tabs[9]:
         unsafe_allow_html=True,
     )
 
-    # broker provider 감지
+    # broker provider 감지 (_hc_is_live/_hc_kis_key_set는 공통 데이터 수집부에서 이미 계산됨)
     _hc_provider = config.get("broker", {}).get("provider", "paper")
-    _hc_mode_sys = config.get("system", {}).get("mode", "paper")
-    _hc_is_live  = _hc_mode_sys == "live"
 
     # WS 구독 수: session_state에서 참조
     _hc_ws_count = 0
@@ -5070,8 +5106,6 @@ with tabs[9]:
         _hc_ws_last_ts = _latest.strftime("%H:%M:%S") if _latest else "수신 중..."
 
     # REST API 상태 (paper면 N/A, live면 KIS 키 설정 여부로 판단)
-    import os as _os
-    _hc_kis_key_set = bool(_os.getenv("KIS_APP_KEY") or config.get("broker",{}).get("live",{}).get("app_key",""))
     if not _hc_is_live:
         _rest_label = "🟡 모의투자 모드 (PaperBroker)"
         _rest_color = "#f59e0b"
@@ -5334,12 +5368,7 @@ with tabs[9]:
         unsafe_allow_html=True,
     )
 
-    # 에이전트별 개별 TP 목표 (DB 첫 번째 유저에서 읽기)
-    try:
-        _hc_users = db.get_all_users()
-        _hc_u0    = _hc_users[0] if _hc_users else {}
-    except Exception:
-        _hc_u0 = {}
+    # 에이전트별 개별 TP 목표 (_hc_u0는 공통 데이터 수집부에서 이미 로드됨)
 
     _ag_tp_targets = {
         "value_finder": float(_hc_u0.get("target_profit_value",  0.0) or 0.0),

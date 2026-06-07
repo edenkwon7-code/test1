@@ -321,14 +321,14 @@ class PaperTradingEngine:
         if self._day_str != today:
             self._day_str = today
             # DB에 이미 기록된 당일 시작 자본이 있으면 재사용, 없으면 지금 값을 기록
-            saved = self.db.get_day_start_capital(today)
+            saved = self.db.get_day_start_capital(today, mode=self.mode)
             if saved > 0:
                 self._day_start_capital = saved
             else:
                 self._day_start_capital = total_value
-                self.db.set_day_start_capital(today, total_value)
+                self.db.set_day_start_capital(today, total_value, mode=self.mode)
             # 당일 입출금 합계도 DB에서 복원 (재시작 후에도 보정값 유지)
-            self._day_net_cash_flow = self.db.get_daily_cash_flow(today)
+            self._day_net_cash_flow = self.db.get_daily_cash_flow(today, mode=self.mode)
             logger.info(
                 f"[일일보정] 날짜 전환 → {today} | "
                 f"시작자산={self._day_start_capital:,.0f} | "
@@ -343,7 +343,7 @@ class PaperTradingEngine:
         amount < 0 : 출금 (포트폴리오 현금 감소 + MDD 기준선 보정)
         """
         today = datetime.now().strftime("%Y-%m-%d")
-        self.db.add_daily_cash_flow(today, amount, note)
+        self.db.add_daily_cash_flow(today, amount, note, mode=self.mode)
         self._day_net_cash_flow += amount
 
         # 포트폴리오 현금 반영

@@ -880,77 +880,127 @@ class QuantDatabase:
     # ── 일일 입출금 보정 (MDD 오작동 방지) ──────────────────────
 
     def migrate_cash_flow_table(self):
-        """daily_cash_flows 테이블 생성 (최초 1회, 기존 DB 호환)"""
+        """daily_cash_flows / day_start_capital 테이블 생성 및 mode 컬럼 마이그레이션.
+
+        모의투자(paper)와 실전투자(live) 데이터를 분리 저장하기 위해 mode 컬럼을 사용.
+        기존 DB(mode 컬럼 없음)는 자동으로 마이그레이션된다.
+        """
         with self._get_conn() as conn:
+            # ── 신규 설치용 스키마 (mode 포함) ────────────────────────
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS daily_cash_flows (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     date         TEXT NOT NULL,
+                    mode         TEXT NOT NULL DEFAULT 'paper',
                     amount       REAL NOT NULL,
                     note         TEXT DEFAULT '',
-                    recorded_at  TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS day_start_capital (
-                    date         TEXT PRIMARY KEY,
-                    capital      REAL NOT NULL,
                     recorded_at  TEXT NOT NULL
                 );
                 """
             )
 
-    def get_daily_cash_flow(self, date_str: str) -> float:
-        """해당 날짜의 누적 순입출금액 합계 (입금 +, 출금 -)"""
+            # ── 기존 DB 마이그레이션: daily_cash_flows ────────────────
+            _dcf_cols = {r[1] for r in conn.execute("PRAGMA table_info(daily_cash_flows)")}
+            if "mode" not in _dcf_cols:
+                conn.execute(
+                    "ALTER TABLE daily_cash_flows ADD COLUMN mode TEXT NOT NULL DEFAULT 'paper'"
+                )
+
+            # ── day_start_capital: 복합 PK (date, mode) ───────────────
+            _dsc_cols = {r[1] for r in conn.execute("PRAGMA table_info(day_start_capital)")}
+            if not _dsc_cols:
+                # 테이블 자체가 없으면 신규 생성
+                conn.execute(
+                    """CREATE TABLE day_start_capital (
+                           date        TEXT NOT NULL,
+                           mode        TEXT NOT NULL DEFAULT 'paper',
+                           capital     REAL NOT NULL,
+                           recorded_at TEXT NOT NULL,
+                           PRIMARY KEY (date, mode)
+                       )"""
+                )
+            elif "mode" not in _dsc_cols:
+                # 기존 테이블(date TEXT PRIMARY KEY) → 복합 PK로 교체, 데이터 보존
+                conn.executescript(
+                    """
+                    ALTER TABLE day_start_capital RENAME TO _dsc_bak;
+                    CREATE TABLE day_start_capital (
+                        date        TEXT NOT NULL,
+                        mode        TEXT NOT NULL DEFAULT 'paper',
+                        capital     REAL NOT NULL,
+                        recorded_at TEXT NOT NULL,
+                        PRIMARY KEY (date, mode)
+                    );
+                    INSERT OR IGNORE INTO day_start_capital (date, mode, capital, recorded_at)
+                        SELECT date, 'paper', capital, recorded_at FROM _dsc_bak;
+                    DROP TABLE _dsc_bak;
+                    """
+                )
+
+    def get_daily_cash_flow(self, date_str: str, mode: str = "paper") -> float:
+        """해당 날짜·모드의 누적 순입출금액 합계 (입금 +, 출금 -)"""
         try:
             with self._get_conn() as conn:
                 row = conn.execute(
-                    "SELECT COALESCE(SUM(amount), 0) AS total FROM daily_cash_flows WHERE date=?",
-                    (date_str,),
+                    "SELECT COALESCE(SUM(amount), 0) AS total "
+                    "FROM daily_cash_flows WHERE date=? AND mode=?",
+                    (date_str, mode),
                 ).fetchone()
                 return float(row["total"]) if row else 0.0
         except Exception:
             return 0.0
 
-    def add_daily_cash_flow(self, date_str: str, amount: float, note: str = "") -> None:
-        """입금(+) 또는 출금(-) 기록"""
+    def add_daily_cash_flow(
+        self, date_str: str, amount: float, note: str = "", mode: str = "paper"
+    ) -> None:
+        """입금(+) 또는 출금(-) 기록 (mode 별 분리)"""
         now = datetime.now().isoformat()
         with self._get_conn() as conn:
             conn.execute(
-                "INSERT INTO daily_cash_flows (date, amount, note, recorded_at) VALUES (?, ?, ?, ?)",
-                (date_str, amount, note, now),
+                "INSERT INTO daily_cash_flows (date, mode, amount, note, recorded_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (date_str, mode, amount, note, now),
             )
 
-    def get_day_start_capital(self, date_str: str) -> float:
-        """해당 날짜의 장 시작 자산 (기록이 없으면 0 반환)"""
+    def get_day_start_capital(self, date_str: str, mode: str = "paper") -> float:
+        """해당 날짜·모드의 장 시작 자산 (기록이 없으면 0 반환)"""
         try:
             with self._get_conn() as conn:
                 row = conn.execute(
-                    "SELECT capital FROM day_start_capital WHERE date=?",
-                    (date_str,),
+                    "SELECT capital FROM day_start_capital WHERE date=? AND mode=?",
+                    (date_str, mode),
                 ).fetchone()
                 return float(row["capital"]) if row else 0.0
         except Exception:
             return 0.0
 
-    def set_day_start_capital(self, date_str: str, capital: float) -> None:
-        """장 시작 자산 저장 (하루 1회, 이미 기록 있으면 무시)"""
+    def set_day_start_capital(self, date_str: str, capital: float, mode: str = "paper") -> None:
+        """장 시작 자산 저장 (하루·모드 1회, 이미 기록 있으면 무시)"""
         now = datetime.now().isoformat()
         with self._get_conn() as conn:
             conn.execute(
-                """INSERT OR IGNORE INTO day_start_capital (date, capital, recorded_at)
-                   VALUES (?, ?, ?)""",
-                (date_str, capital, now),
+                """INSERT OR IGNORE INTO day_start_capital (date, mode, capital, recorded_at)
+                   VALUES (?, ?, ?, ?)""",
+                (date_str, mode, capital, now),
             )
 
-    def get_cash_flow_history(self, limit: int = 30) -> list[dict]:
-        """최근 입출금 내역 조회"""
+    def get_cash_flow_history(self, limit: int = 30, mode: str | None = None) -> list[dict]:
+        """최근 입출금 내역 조회 (mode 미지정 시 전체)"""
         try:
             with self._get_conn() as conn:
-                rows = conn.execute(
-                    "SELECT date, amount, note, recorded_at FROM daily_cash_flows "
-                    "ORDER BY recorded_at DESC LIMIT ?",
-                    (limit,),
-                ).fetchall()
+                if mode:
+                    rows = conn.execute(
+                        "SELECT date, mode, amount, note, recorded_at FROM daily_cash_flows "
+                        "WHERE mode=? ORDER BY recorded_at DESC LIMIT ?",
+                        (mode, limit),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT date, mode, amount, note, recorded_at FROM daily_cash_flows "
+                        "ORDER BY recorded_at DESC LIMIT ?",
+                        (limit,),
+                    ).fetchall()
                 return [dict(r) for r in rows]
         except Exception:
             return []

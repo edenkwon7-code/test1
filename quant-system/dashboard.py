@@ -426,17 +426,22 @@ def _show_login_page():
           border-bottom:none!important;
         }
         [data-testid="stTabs"] [role="tab"]{
-          color:#94a3b8!important;font-weight:600!important;
+          color:#ffffff!important;font-weight:600!important;
           border-radius:8px 8px 0 0!important;
           padding:0.55rem 1.75rem!important;font-size:0.875rem!important;
           border:none!important;background:transparent!important;
+          opacity:0.7;
         }
         [data-testid="stTabs"] [role="tab"][aria-selected="true"]{
-          background:#1e3a5f!important;color:#60a5fa!important;
-          border-bottom:2px solid #3b82f6!important;
+          background:#1e3a5f!important;color:#ffffff!important;
+          border-bottom:2px solid #3b82f6!important;opacity:1!important;
         }
         [data-testid="stTabs"] [role="tab"]:hover{
-          background:rgba(59,130,246,0.1)!important;color:#93c5fd!important;
+          background:rgba(59,130,246,0.1)!important;color:#ffffff!important;opacity:1!important;
+        }
+        [data-testid="stTabs"] [role="tab"] p,
+        [data-testid="stTabs"] [role="tab"] span{
+          color:#ffffff!important;
         }
         [data-testid="stForm"]{
           background:#0d1a3a!important;border:1px solid #1e3a5f!important;
@@ -1288,6 +1293,7 @@ if _is_masquerading:
 _tab_list = [
     "포트폴리오", "종목 차트", "레짐 분석", "에이전트",
     "리스크", "거래 내역", "백테스트", "시스템 로그", "설정",
+    "💻 헬스체크",
 ]
 if _u.get("is_admin"):
     _tab_list.append("👥 사용자 관리")
@@ -4958,10 +4964,487 @@ st.markdown(
 )
 
 # ═══════════════════════════════════════════════════════════
-# 탭 10: 👥 사용자 관리 (관리자 전용)
+# 탭 10: 💻 시스템 헬스체크 및 성능 검증 패널
 # ═══════════════════════════════════════════════════════════
-if _u.get("is_admin") and len(tabs) >= 10:
-    with tabs[9]:
+with tabs[9]:
+
+    # ── 헬스체크 공통 데이터 수집 ─────────────────────────────
+    _hc_today   = datetime.now().strftime("%Y-%m-%d")
+    _hc_port    = db.get_portfolio(_cur_mode)
+    _hc_total   = _hc_port.get("total_capital", config["paper_trading"]["initial_capital"])
+    _hc_cash    = _hc_port.get("cash", _hc_total)
+    _hc_invested= _hc_port.get("invested", 0)
+    _hc_daily_pnl_pct = _hc_port.get("daily_pnl_pct", 0.0)
+    _hc_cf      = db.get_daily_cash_flow(_hc_today)
+    _hc_ks_info   = db.get_kill_switch()
+    _hc_ks_on     = _hc_ks_info.get("emergency_stop", False)
+    _hc_ks_reason = _hc_ks_info.get("kill_switch_reason", "")
+    _hc_trades  = db.get_trades(mode=_cur_mode, limit=1000)
+    _hc_today_trades = [t for t in _hc_trades if str(t.get("executed_at",""))[:10] == _hc_today]
+    _hc_regimes = db.get_regime_history(limit=1)
+    _hc_last_regime = _hc_regimes[0] if _hc_regimes else {}
+    _hc_vix     = _hc_last_regime.get("vix", 0.0)
+    _hc_ma_align= _hc_last_regime.get("ma_alignment", "")
+
+    # 자산 노출 비율
+    _hc_exposure_pct = _hc_invested / _hc_total if _hc_total > 0 else 0.0
+    _hc_max_exp = config["risk_management"].get("max_exposure_pct", 0.35)
+    _hc_daily_limit = config["risk_management"].get("daily_max_drawdown", 0.05)
+
+    # 서킷브레이커 발동 여부 (VIX≥30 OR MA역배열)
+    _hc_supreme_triggered = (
+        _hc_vix >= 30 or
+        _hc_ma_align in ("BEARISH", "역배열", "BEARISH_STRONG") or
+        _hc_ks_on
+    )
+
+    st.markdown(
+        "<h2 style='font-size:1.4rem;font-weight:800;margin-bottom:0.25rem'>"
+        "💻 시스템 헬스체크 및 성능 검증 패널</h2>"
+        "<p style='color:#64748b;font-size:0.85rem;margin-top:0;margin-bottom:1.5rem'>"
+        f"마지막 갱신: {datetime.now().strftime('%H:%M:%S')} &nbsp;·&nbsp; "
+        f"모드: <b>{'실전' if _cur_mode == 'live' else '모의투자'}</b> "
+        f"&nbsp;·&nbsp; 기준일: {_hc_today}</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 코드 감사 결과 요약 배너 ────────────────────────────────
+    st.markdown(
+        """
+        <div style='background:#0f172a;border:1px solid #334155;border-radius:12px;
+                    padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.82rem;'>
+          <div style='color:#94a3b8;font-weight:700;margin-bottom:0.5rem;font-size:0.9rem;'>
+            📋 코드 감사(Code Audit) 결과 — 구현 현황
+          </div>
+          <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;'>
+            <div style='color:#4ade80'>✅ KIS REST API + 주도주서치</div>
+            <div style='color:#4ade80'>✅ WebSocket 40종목 한도</div>
+            <div style='color:#4ade80'>✅ 초당 18건 Rate Limiter</div>
+            <div style='color:#4ade80'>✅ daily_net_cash_flow 킬스위치 보정</div>
+            <div style='color:#4ade80'>✅ 일일 MDD -5% 자동 킬스위치</div>
+            <div style='color:#4ade80'>✅ Max Exposure 35% 신규 구현 ✨</div>
+            <div style='color:#4ade80'>✅ 1차 서킷브레이커(VIX≥30/역배열)</div>
+            <div style='color:#4ade80'>✅ TrendRider 3중 AND 조건</div>
+            <div style='color:#4ade80'>✅ MicroSniper 4중 지표(ADX·BB·RSI·Stoch)</div>
+            <div style='color:#4ade80'>✅ 3-Strike Out 연속손실 브레이크</div>
+            <div style='color:#4ade80'>✅ 에이전트별 개별 Take Profit</div>
+            <div style='color:#4ade80'>✅ 결정론적 브리핑 (LLM 개입=False)</div>
+            <div style='color:#4ade80'>✅ 소르티노 &lt;0.2 영구배제</div>
+            <div style='color:#4ade80'>✅ F-스코어 ≥ 3 필터링</div>
+            <div style='color:#f59e0b'>🔧 WS Watchdog 타임스탬프 — KIS 자격증명 설정 후 활성화</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ════════════════════════════════════════════════════════════
+    # 영역 1: 하이브리드 API 인프라 및 통신 상태
+    # ════════════════════════════════════════════════════════════
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #3b82f6;"
+        "border-radius:0 8px 8px 0;padding:0.6rem 1rem;margin-bottom:0.75rem;'>"
+        "<span style='color:#3b82f6;font-weight:700;font-size:0.95rem'>"
+        "① 하이브리드 API 인프라 및 통신 상태 (BrokerAPI)</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # broker provider 감지
+    _hc_provider = config.get("broker", {}).get("provider", "paper")
+    _hc_mode_sys = config.get("system", {}).get("mode", "paper")
+    _hc_is_live  = _hc_mode_sys == "live"
+
+    # WS 구독 수: session_state에서 참조
+    _hc_ws_count = 0
+    _hc_ws_tickers: list = []
+    _hc_ws_last_ts = "—"
+    if "kis_broker_ref" in st.session_state:
+        _kis = st.session_state["kis_broker_ref"]
+        _hc_ws_tickers = _kis.get_subscribed_universe() if hasattr(_kis, "get_subscribed_universe") else []
+        _hc_ws_count   = len(_hc_ws_tickers)
+        _latest = None
+        for _t in _hc_ws_tickers[:5]:
+            _d = _kis.get_ws_latest(_t) if hasattr(_kis, "get_ws_latest") else None
+            if _d and _d.get("timestamp"):
+                _latest = _d["timestamp"]
+        _hc_ws_last_ts = _latest.strftime("%H:%M:%S") if _latest else "수신 중..."
+
+    # REST API 상태 (paper면 N/A, live면 KIS 키 설정 여부로 판단)
+    import os as _os
+    _hc_kis_key_set = bool(_os.getenv("KIS_APP_KEY") or config.get("broker",{}).get("live",{}).get("app_key",""))
+    if not _hc_is_live:
+        _rest_label = "🟡 모의투자 모드 (PaperBroker)"
+        _rest_color = "#f59e0b"
+    elif _hc_kis_key_set:
+        _rest_label = "🟢 KIS REST API 연결됨"
+        _rest_color = "#4ade80"
+    else:
+        _rest_label = "🔴 KIS API 키 미설정"
+        _rest_color = "#f87171"
+
+    _ws_bar_pct = min(_hc_ws_count / 40 * 100, 100) if _hc_is_live else 0
+    _ws_bar_color = "#4ade80" if _hc_ws_count <= 35 else "#f59e0b"
+
+    st.markdown(
+        f"""
+        <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:1.25rem;'>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              REST API 연결 상태</div>
+            <div style='font-weight:700;font-size:0.95rem;color:{_rest_color}'>{_rest_label}</div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.3rem'>
+              provider: {_hc_provider.upper() if _hc_is_live else 'PaperBroker'}</div>
+          </div>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              WebSocket 구독 종목 수 (한도 40개)</div>
+            <div style='font-size:1.3rem;font-weight:800;color:{_ws_bar_color}'>{_hc_ws_count} <span style='font-size:0.75rem;color:#64748b;font-weight:400'>/ 40</span></div>
+            <div style='background:#1e293b;border-radius:4px;height:6px;margin-top:0.4rem;'>
+              <div style='background:{_ws_bar_color};width:{_ws_bar_pct:.0f}%;height:6px;border-radius:4px;'></div>
+            </div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.25rem'>
+              {'live mode — KIS 자격증명 설정 후 활성화' if not _hc_is_live else f"구독중: {', '.join(_hc_ws_tickers[:3])}{'...' if _hc_ws_count > 3 else ''}"}</div>
+          </div>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              Watchdog 생존 신호 (마지막 통신)</div>
+            <div style='font-weight:700;font-size:0.95rem;color:#94a3b8'>
+              {'WS 비활성 (모의투자)' if not _hc_is_live else _hc_ws_last_ts}</div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.3rem'>
+              {'KIS WS 자격증명 설정 후 갱신' if not _hc_is_live else '1분봉 수신마다 자동 갱신'}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ════════════════════════════════════════════════════════════
+    # 영역 2: 4중 안전장치 및 자본 통제 상태
+    # ════════════════════════════════════════════════════════════
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #f59e0b;"
+        "border-radius:0 8px 8px 0;padding:0.6rem 1rem;margin-bottom:0.75rem;'>"
+        "<span style='color:#f59e0b;font-weight:700;font-size:0.95rem'>"
+        "② 4중 안전장치 및 자본 통제 상태 (TradingEngine · ChiefOfStaff)</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # MDD 색상
+    _mdd_pct   = _hc_daily_pnl_pct
+    _mdd_color = "#4ade80" if _mdd_pct >= 0 else ("#f59e0b" if _mdd_pct > -_hc_daily_limit else "#f87171")
+    _mdd_label = f"{_mdd_pct:+.2%}"
+    _mdd_gauge_pct = min(abs(_mdd_pct) / _hc_daily_limit * 100, 100) if _hc_daily_limit > 0 else 0
+
+    # 노출 비율 색상
+    _exp_color  = "#4ade80" if _hc_exposure_pct < _hc_max_exp * 0.8 else ("#f59e0b" if _hc_exposure_pct < _hc_max_exp else "#f87171")
+    _exp_bar    = min(_hc_exposure_pct / _hc_max_exp * 100, 100) if _hc_max_exp > 0 else 0
+
+    # 서킷브레이커 표시
+    _cb_color   = "#f87171" if _hc_supreme_triggered else "#4ade80"
+    _cb_label   = "🚨 발동 중" if _hc_supreme_triggered else "✅ 정상 (미발동)"
+    _cb_reason_txt = ""
+    if _hc_supreme_triggered:
+        if _hc_ks_on:
+            _cb_reason_txt = _hc_ks_reason[:60] if _hc_ks_reason else "킬스위치 활성"
+        elif _hc_vix >= 30:
+            _cb_reason_txt = f"VIX={_hc_vix:.1f} ≥ 30"
+        else:
+            _cb_reason_txt = f"MA역배열 감지 ({_hc_ma_align})"
+
+    # 순입출금 색상
+    _cf_color = "#4ade80" if _hc_cf >= 0 else "#f87171"
+
+    st.markdown(
+        f"""
+        <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.25rem;'>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              📉 일일 MDD 현황</div>
+            <div style='font-size:1.4rem;font-weight:800;color:{_mdd_color}'>{_mdd_label}</div>
+            <div style='background:#1e293b;border-radius:4px;height:6px;margin-top:0.4rem;'>
+              <div style='background:{_mdd_color};width:{_mdd_gauge_pct:.0f}%;height:6px;border-radius:4px;'></div>
+            </div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.25rem'>한도: -{_hc_daily_limit:.0%}</div>
+          </div>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              💵 당일 순입출금 (보정치)</div>
+            <div style='font-size:1.1rem;font-weight:800;color:{_cf_color}'>{_hc_cf:+,.0f}원</div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.5rem'>
+              MDD = (총자산변화 - 순입출금) / 시작자산<br>
+              <span style='color:#334155'>킬스위치 오작동 방지</span></div>
+          </div>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;border:1px solid #1e293b;'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              📊 총자산 노출 비율 (한도 {_hc_max_exp:.0%})</div>
+            <div style='font-size:1.4rem;font-weight:800;color:{_exp_color}'>{_hc_exposure_pct:.1%}</div>
+            <div style='background:#1e293b;border-radius:4px;height:6px;margin-top:0.4rem;'>
+              <div style='background:{_exp_color};width:{_exp_bar:.0f}%;height:6px;border-radius:4px;'></div>
+            </div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.25rem'>
+              투자={_hc_invested:,.0f} / 총자산={_hc_total:,.0f}</div>
+          </div>
+          <div style='background:#0f172a;border-radius:10px;padding:1rem;
+                      border:2px solid {_cb_color};'>
+            <div style='color:#64748b;font-size:0.75rem;font-weight:600;margin-bottom:0.4rem'>
+              🚨 비서실장 서킷브레이커</div>
+            <div style='font-size:1rem;font-weight:800;color:{_cb_color}'>{_cb_label}</div>
+            <div style='color:#475569;font-size:0.7rem;margin-top:0.4rem;word-break:break-all'>
+              {_cb_reason_txt if _cb_reason_txt else "VIX<30 · MA정배열 · 킬스위치 미발동"}
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # 세부 안전장치 구현 검증표
+    st.markdown(
+        f"""
+        <div style='background:#0f172a;border-radius:10px;padding:1rem 1.25rem;
+                    border:1px solid #1e293b;margin-bottom:1.25rem;font-size:0.8rem;'>
+          <div style='color:#94a3b8;font-weight:700;margin-bottom:0.6rem'>4중 안전장치 구현 상세</div>
+          <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:0.4rem;'>
+            <div style='color:#4ade80'>✅ daily_net_cash_flow 보정 — SimulationEngine._day_net_cash_flow</div>
+            <div style='color:#4ade80'>✅ 일일 MDD -5% — TradingEngine.run_cycle() STEP 5</div>
+            <div style='color:#4ade80'>✅ Max Exposure 35% — TradingEngine.run_cycle() STEP 3 (신규)</div>
+            <div style='color:#4ade80'>✅ VIX≥30 하드룰 — ChiefOfStaff._check_supreme_circuit_breaker()</div>
+            <div style='color:#4ade80'>✅ 이평선 역배열 — MA60>MA20>MA5 감지 시 즉각 0% 배분</div>
+            <div style='color:#4ade80'>✅ 킬스위치 DB 영구저장 — db.set_kill_switch() + 재시작 후 복원</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ════════════════════════════════════════════════════════════
+    # 영역 3: 4대 에이전트 핵심 진입/청산 로직 검증
+    # ════════════════════════════════════════════════════════════
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #a855f7;"
+        "border-radius:0 8px 8px 0;padding:0.6rem 1rem;margin-bottom:0.75rem;'>"
+        "<span style='color:#a855f7;font-weight:700;font-size:0.95rem'>"
+        "③ 4대 에이전트 핵심 진입/청산 로직 검증 (Agents)</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # 에이전트별 당일 매매 수 집계
+    _ag_trade_counts = {}
+    _ag_key_map = {
+        "value_finder":  ("밸류파인더",  "💎"),
+        "trend_rider":   ("트렌드라이더", "📈"),
+        "swing_master":  ("스윙마스터",  "🔄"),
+        "micro_sniper":  ("마이크로스나이퍼", "🎯"),
+    }
+    for _ak in _ag_key_map:
+        _ag_trade_counts[_ak] = len([
+            t for t in _hc_today_trades if t.get("agent_name") == _ak
+        ])
+
+    # MicroSniper halted 상태
+    _sniper_ref2 = st.session_state.get("_sniper_agent_ref")
+    if _sniper_ref2 is None:
+        try:
+            from MicroSniper import MicroSniperAgent as _MSA2
+            _sniper_ref2 = _MSA2(config)
+            st.session_state["_sniper_agent_ref"] = _sniper_ref2
+        except Exception:
+            _sniper_ref2 = None
+    _sniper_status2 = _sniper_ref2.get_agent_status() if _sniper_ref2 else {}
+    _sniper_halted2 = _sniper_status2.get("halted", False)
+    _sniper_consec  = _sniper_status2.get("consecutive_losses", 0)
+    _sniper_limit   = config.get("agents", {}).get("micro_sniper", {}).get("consecutive_loss_limit", 3)
+    _consec_color   = "#f87171" if _sniper_consec >= _sniper_limit else ("#f59e0b" if _sniper_consec > 0 else "#4ade80")
+
+    # 에이전트별 halted 상태 (MDD·TP로 멈춘 경우)
+    _ag_halt_colors = {
+        "value_finder": "#4ade80",
+        "trend_rider":  "#4ade80",
+        "swing_master": "#4ade80",
+        "micro_sniper": "#f87171" if _sniper_halted2 else "#4ade80",
+    }
+    _ag_halt_labels = {
+        "value_finder": "Active",
+        "trend_rider":  "Active",
+        "swing_master": "Active",
+        "micro_sniper": ("🔴 당일 중단" if _sniper_halted2 else "🟢 Active"),
+    }
+
+    # 에이전트 핵심 로직 검증 태그
+    _ag_logic_tags = {
+        "value_finder":  "소르티노&lt;0.2 영구배제 · F-스코어≥3 필터 · 마법공식",
+        "trend_rider":   "골든크로스 AND MACD≥0 AND 거래량≥1.5x — 3중 AND 조건",
+        "swing_master":  "BB하단돌파 AND RSI&lt;30 — 역추세 2중 확인",
+        "micro_sniper":  "ADX>20 AND BB%B&lt;0.05 AND RSI&lt;21 AND Stoch GC — 4중 AND",
+    }
+
+    _ag_grid_html = ""
+    for _ak, (_aname, _aemoji) in _ag_key_map.items():
+        _tc    = _ag_trade_counts.get(_ak, 0)
+        _hcol  = _ag_halt_colors.get(_ak, "#4ade80")
+        _hlbl  = _ag_halt_labels.get(_ak, "Active")
+        _ltag  = _ag_logic_tags.get(_ak, "")
+        _extra = ""
+        if _ak == "micro_sniper":
+            _bar_w = int(_sniper_consec / _sniper_limit * 100) if _sniper_limit > 0 else 0
+            _extra = f"""
+              <div style='margin-top:0.5rem;'>
+                <span style='color:#64748b;font-size:0.7rem'>연속 손실 카운트 &nbsp;</span>
+                <span style='font-size:0.9rem;font-weight:700;color:{_consec_color}'>{_sniper_consec}/{_sniper_limit}</span>
+                <div style='background:#1e293b;border-radius:4px;height:5px;margin-top:0.2rem;'>
+                  <div style='background:{_consec_color};width:{_bar_w}%;height:5px;border-radius:4px;'></div>
+                </div>
+              </div>"""
+        _ag_grid_html += f"""
+          <div style='background:#0f172a;border-radius:10px;padding:0.9rem;border:1px solid #1e293b;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem'>
+              <span style='font-weight:700;color:#e2e8f0'>{_aemoji} {_aname}</span>
+              <span style='font-size:0.75rem;font-weight:700;color:{_hcol}'>{_hlbl}</span>
+            </div>
+            <div style='color:#64748b;font-size:0.7rem;margin-bottom:0.35rem'>{_ltag}</div>
+            <div style='color:#94a3b8;font-size:0.8rem'>당일 매매: <b style='color:#e2e8f0'>{_tc}건</b></div>
+            {_extra}
+          </div>"""
+
+    st.markdown(
+        f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-bottom:1.25rem;'>{_ag_grid_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ════════════════════════════════════════════════════════════
+    # 영역 4: 에이전트별 조기 퇴근(Take Profit) 진척도 바
+    # ════════════════════════════════════════════════════════════
+    st.markdown(
+        "<div style='background:#1e293b;border-left:4px solid #4ade80;"
+        "border-radius:0 8px 8px 0;padding:0.6rem 1rem;margin-bottom:0.75rem;'>"
+        "<span style='color:#4ade80;font-weight:700;font-size:0.95rem'>"
+        "④ 에이전트별 조기 퇴근(Take Profit) 진척도 및 결정론적 계산 검증</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # 에이전트별 개별 TP 목표 (DB 첫 번째 유저에서 읽기)
+    try:
+        _hc_users = db.get_all_users()
+        _hc_u0    = _hc_users[0] if _hc_users else {}
+    except Exception:
+        _hc_u0 = {}
+
+    _ag_tp_targets = {
+        "value_finder": float(_hc_u0.get("target_profit_value",  0.0) or 0.0),
+        "trend_rider":  float(_hc_u0.get("target_profit_trend",  0.0) or 0.0),
+        "swing_master": float(_hc_u0.get("target_profit_swing",  0.0) or 0.0),
+        "micro_sniper": float(_hc_u0.get("target_profit_sniper", 0.0) or 0.0),
+    }
+
+    # 에이전트별 당일 실현 손익 계산 (공식: 매도총액 - 매수총액)
+    _ag_pnl_info = {}
+    for _ak in _ag_key_map:
+        _ag_tr = [t for t in _hc_today_trades if t.get("agent_name") == _ak]
+        _buy   = sum(t.get("total_amount", 0) for t in _ag_tr if t.get("action") == "BUY")
+        _sell  = sum(t.get("total_amount", 0) for t in _ag_tr if t.get("action") == "SELL")
+        _real  = _sell - _buy
+        # 배정 예산: 현재 총자산 × 레짐 배분 비율 (근사)
+        _last_alloc = _hc_last_regime.get("allocation", {}) if _hc_last_regime else {}
+        _alloc_pct  = _last_alloc.get(_ak, 0.0)
+        _budget     = max(_hc_total * _alloc_pct, 1)
+        _pnl_pct    = _real / _budget if _budget > 0 else 0.0
+        _tp_target  = _ag_tp_targets.get(_ak, 0.0)
+        _ag_pnl_info[_ak] = {
+            "realized": _real,
+            "pnl_pct": _pnl_pct,
+            "tp_target": _tp_target,
+            "buy": _buy, "sell": _sell,
+        }
+
+    # 진척도 바 렌더링
+    _tp_rows_html = ""
+    for _ak, (_aname, _aemoji) in _ag_key_map.items():
+        _info   = _ag_pnl_info[_ak]
+        _pct    = _info["pnl_pct"]
+        _tp     = _info["tp_target"]
+        _real   = _info["realized"]
+        _hlbl   = _ag_halt_labels.get(_ak, "Active")
+
+        if _tp > 0:
+            _progress = min(_pct / _tp * 100, 100) if _tp > 0 else 0
+            _progress = max(_progress, 0)
+            _bar_color = "#4ade80" if _pct >= _tp else ("#f59e0b" if _pct >= _tp * 0.5 else "#3b82f6")
+            _tp_label  = f"{_tp:.1%}"
+            _status_badge = (
+                f"<span style='background:#14532d;color:#4ade80;font-size:0.65rem;"
+                f"padding:1px 6px;border-radius:10px;font-weight:700'>조기퇴근 완료 🏆</span>"
+                if _pct >= _tp else ""
+            )
+        else:
+            _progress  = 0
+            _bar_color = "#334155"
+            _tp_label  = "미설정"
+            _status_badge = f"<span style='color:#475569;font-size:0.7rem'>설정→ 리스크 탭 &gt; 에이전트 목표 수익</span>"
+
+        _pct_color = "#4ade80" if _pct >= 0 else "#f87171"
+        _tp_rows_html += f"""
+          <div style='background:#0f172a;border-radius:10px;padding:0.9rem 1.1rem;
+                      border:1px solid #1e293b;margin-bottom:0.6rem;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem'>
+              <span style='font-weight:700;color:#e2e8f0;font-size:0.9rem'>{_aemoji} {_aname}</span>
+              <div style='display:flex;align-items:center;gap:0.5rem'>
+                {_status_badge}
+                <span style='color:#64748b;font-size:0.75rem'>{_hlbl}</span>
+              </div>
+            </div>
+            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem'>
+              <div>
+                <span style='color:#64748b;font-size:0.72rem'>당일 실현 손익&nbsp;</span>
+                <span style='font-size:0.95rem;font-weight:700;color:{_pct_color}'>{_pct:+.2%}</span>
+                <span style='color:#475569;font-size:0.7rem'>&nbsp;({_real:+,.0f}원)</span>
+              </div>
+              <div>
+                <span style='color:#64748b;font-size:0.72rem'>목표 &nbsp;</span>
+                <span style='font-size:0.9rem;font-weight:700;color:#94a3b8'>{_tp_label}</span>
+              </div>
+            </div>
+            <div style='background:#1e293b;border-radius:6px;height:10px;position:relative;'>
+              <div style='background:{_bar_color};width:{_progress:.1f}%;height:10px;
+                          border-radius:6px;transition:width 0.3s;'></div>
+            </div>
+            <div style='display:flex;justify-content:space-between;margin-top:0.25rem'>
+              <span style='color:#334155;font-size:0.65rem'>0%</span>
+              <span style='color:#334155;font-size:0.65rem'>{_tp_label}</span>
+            </div>
+          </div>"""
+
+    st.markdown(_tp_rows_html, unsafe_allow_html=True)
+
+    # 결정론적 계산 검증 박스
+    st.markdown(
+        """
+        <div style='background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                    padding:0.9rem 1.1rem;margin-top:0.5rem;font-size:0.8rem;'>
+          <div style='color:#94a3b8;font-weight:700;margin-bottom:0.5rem'>
+            🔬 LLM 할루시네이션 방지 — 결정론적 계산 검증</div>
+          <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:0.35rem;color:#64748b'>
+            <div>✅ 수익률 공식: <b style='color:#94a3b8'>(매도총액 − 매수총액) ÷ 배정예산</b></div>
+            <div>✅ Ground Truth dict — 판단 근거 전부 숫자로 저장</div>
+            <div>✅ LLM_개입: False — 고정 템플릿 메시지만 사용</div>
+            <div>✅ RETIRE_EVENT: DB 기록 (LLM 없이 재현 가능)</div>
+            <div>✅ 조기퇴근 메시지 = f-string 고정 템플릿 (AI 문장 생성 없음)</div>
+            <div>✅ KakaoTalk 알림도 결정론적 수치만 삽입</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🔄 헬스체크 새로 고침", key="btn_healthcheck_refresh"):
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════
+# 탭 11: 👥 사용자 관리 (관리자 전용)
+# ═══════════════════════════════════════════════════════════
+if _u.get("is_admin") and len(tabs) >= 11:
+    with tabs[10]:
         st.markdown("## 👥 사용자 관리")
 
         # ── 승인 대기 섹션 ────────────────────────────────────

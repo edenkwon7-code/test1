@@ -464,6 +464,23 @@ class TradingEngine:
             # 3. 기존 포지션 스탑로스/이익실현 체크
             self._check_stoploss_takeprofit(regime_str)
 
+            # ── ⚠️ 자산 노출 한도 35% 하드룰 ──────────────────────
+            # 총자산 대비 투자 비율이 max_exposure_pct 초과 시 신규 매수 전면 차단
+            _max_exp = self.config["risk_management"].get("max_exposure_pct", 0.35)
+            _invested = portfolio_state.get("invested", 0)
+            _exposure_pct = _invested / total_capital if total_capital > 0 else 0
+            if _exposure_pct > _max_exp:
+                _exp_msg = (
+                    f"자산 노출 한도 초과 — 신규 매수 차단 "
+                    f"(현재={_exposure_pct:.1%} > 한도={_max_exp:.1%})"
+                )
+                logger.warning(f"[리스크] {_exp_msg}")
+                self.db.log_system_event("WARNING", "TradingEngine", _exp_msg)
+                result["error"] = _exp_msg
+                result["exposure_blocked"] = True
+                # 청산만 허용 — 에이전트 신호 생성 단계를 건너뜀
+                return result
+
             # 4. 에이전트별 예산 배분 및 신호 생성
             invest_cash = portfolio_state["cash"]  # 재조회
 

@@ -143,6 +143,7 @@ paper_trading:
 risk_management:
   circuit_breaker_cooldown_hours: 24
   daily_max_drawdown: 0.05
+  max_exposure_pct: 0.35       # ⚠️ 총자산 노출 한도 35% — 초과 시 신규 매수 차단
   max_positions: 20
   position_max_pct: 0.1
   stop_loss_pct: 0.07

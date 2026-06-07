@@ -5272,44 +5272,56 @@ with tabs[9]:
 
     # 에이전트 핵심 로직 검증 태그
     _ag_logic_tags = {
-        "value_finder":  "소르티노&lt;0.2 영구배제 · F-스코어≥3 필터 · 마법공식",
-        "trend_rider":   "골든크로스 AND MACD≥0 AND 거래량≥1.5x — 3중 AND 조건",
-        "swing_master":  "BB하단돌파 AND RSI&lt;30 — 역추세 2중 확인",
-        "micro_sniper":  "ADX>20 AND BB%B&lt;0.05 AND RSI&lt;21 AND Stoch GC — 4중 AND",
+        "value_finder": "소르티노 &lt;0.2 영구배제 · F-스코어 ≥3 필터 · 마법공식",
+        "trend_rider":  "골든크로스 AND MACD ≥0 AND 거래량 ≥1.5x — 3중 AND 조건",
+        "swing_master": "BB하단돌파 AND RSI &lt;30 — 역추세 2중 확인",
+        "micro_sniper": "ADX &gt;20 AND BB%B &lt;0.05 AND RSI &lt;21 AND Stoch GC — 4중 AND",
     }
 
-    _ag_grid_html = ""
-    for _ak, (_aname, _aemoji) in _ag_key_map.items():
-        _tc    = _ag_trade_counts.get(_ak, 0)
-        _hcol  = _ag_halt_colors.get(_ak, "#4ade80")
-        _hlbl  = _ag_halt_labels.get(_ak, "Active")
-        _ltag  = _ag_logic_tags.get(_ak, "")
-        _extra = ""
-        if _ak == "micro_sniper":
-            _bar_w = int(_sniper_consec / _sniper_limit * 100) if _sniper_limit > 0 else 0
-            _extra = f"""
-              <div style='margin-top:0.5rem;'>
-                <span style='color:#64748b;font-size:0.7rem'>연속 손실 카운트 &nbsp;</span>
-                <span style='font-size:0.9rem;font-weight:700;color:{_consec_color}'>{_sniper_consec}/{_sniper_limit}</span>
-                <div style='background:#1e293b;border-radius:4px;height:5px;margin-top:0.2rem;'>
-                  <div style='background:{_consec_color};width:{_bar_w}%;height:5px;border-radius:4px;'></div>
-                </div>
-              </div>"""
-        _ag_grid_html += f"""
-          <div style='background:#0f172a;border-radius:10px;padding:0.9rem;border:1px solid #1e293b;'>
-            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem'>
-              <span style='font-weight:700;color:#e2e8f0'>{_aemoji} {_aname}</span>
-              <span style='font-size:0.75rem;font-weight:700;color:{_hcol}'>{_hlbl}</span>
-            </div>
-            <div style='color:#64748b;font-size:0.7rem;margin-bottom:0.35rem'>{_ltag}</div>
-            <div style='color:#94a3b8;font-size:0.8rem'>당일 매매: <b style='color:#e2e8f0'>{_tc}건</b></div>
-            {_extra}
-          </div>"""
+    # st.columns()로 2열 그리드 구성 (HTML 루프 대신 네이티브 Streamlit)
+    _ag_items = list(_ag_key_map.items())
+    for _row_start in range(0, len(_ag_items), 2):
+        _gcol1, _gcol2 = st.columns(2, gap="small")
+        for _ci, _col in enumerate([_gcol1, _gcol2]):
+            _idx = _row_start + _ci
+            if _idx >= len(_ag_items):
+                break
+            _ak, (_aname, _aemoji) = _ag_items[_idx]
+            _tc   = _ag_trade_counts.get(_ak, 0)
+            _hcol = _ag_halt_colors.get(_ak, "#4ade80")
+            _hlbl = _ag_halt_labels.get(_ak, "Active")
+            _ltag = _ag_logic_tags.get(_ak, "")
 
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-bottom:1.25rem;'>{_ag_grid_html}</div>",
-        unsafe_allow_html=True,
-    )
+            # 스나이퍼 전용 연속 손실 바
+            _extra_html = ""
+            if _ak == "micro_sniper":
+                _bar_w = int(_sniper_consec / _sniper_limit * 100) if _sniper_limit > 0 else 0
+                _extra_html = (
+                    f"<div style='margin-top:0.5rem'>"
+                    f"<span style='color:#64748b;font-size:0.7rem'>연속 손실 카운트 &nbsp;</span>"
+                    f"<span style='font-size:0.9rem;font-weight:700;color:{_consec_color}'>"
+                    f"{_sniper_consec}/{_sniper_limit}</span>"
+                    f"<div style='background:#1e293b;border-radius:4px;height:5px;margin-top:0.25rem'>"
+                    f"<div style='background:{_consec_color};width:{_bar_w}%;height:5px;border-radius:4px'></div>"
+                    f"</div></div>"
+                )
+
+            with _col:
+                st.markdown(
+                    f"<div style='background:#0f172a;border-radius:10px;padding:0.9rem;"
+                    f"border:1px solid #1e293b;margin-bottom:0.5rem'>"
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"align-items:center;margin-bottom:0.35rem'>"
+                    f"<span style='font-weight:700;color:#e2e8f0'>{_aemoji} {_aname}</span>"
+                    f"<span style='font-size:0.75rem;font-weight:700;color:{_hcol}'>{_hlbl}</span>"
+                    f"</div>"
+                    f"<div style='color:#64748b;font-size:0.7rem;margin-bottom:0.3rem'>{_ltag}</div>"
+                    f"<div style='color:#94a3b8;font-size:0.8rem'>"
+                    f"당일 매매: <b style='color:#e2e8f0'>{_tc}건</b></div>"
+                    f"{_extra_html}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     # ════════════════════════════════════════════════════════════
     # 영역 4: 에이전트별 조기 퇴근(Take Profit) 진척도 바
@@ -5356,8 +5368,7 @@ with tabs[9]:
             "buy": _buy, "sell": _sell,
         }
 
-    # 진척도 바 렌더링
-    _tp_rows_html = ""
+    # 진척도 바 렌더링 — 개별 st.markdown() 호출 (HTML 문자열 연결 방지)
     for _ak, (_aname, _aemoji) in _ag_key_map.items():
         _info   = _ag_pnl_info[_ak]
         _pct    = _info["pnl_pct"]
@@ -5366,54 +5377,52 @@ with tabs[9]:
         _hlbl   = _ag_halt_labels.get(_ak, "Active")
 
         if _tp > 0:
-            _progress = min(_pct / _tp * 100, 100) if _tp > 0 else 0
-            _progress = max(_progress, 0)
+            _progress  = max(min(_pct / _tp * 100, 100), 0)
             _bar_color = "#4ade80" if _pct >= _tp else ("#f59e0b" if _pct >= _tp * 0.5 else "#3b82f6")
             _tp_label  = f"{_tp:.1%}"
-            _status_badge = (
-                f"<span style='background:#14532d;color:#4ade80;font-size:0.65rem;"
-                f"padding:1px 6px;border-radius:10px;font-weight:700'>조기퇴근 완료 🏆</span>"
+            _badge_html = (
+                "<span style='background:#14532d;color:#4ade80;font-size:0.65rem;"
+                "padding:1px 6px;border-radius:10px;font-weight:700'>조기퇴근 완료 🏆</span>"
                 if _pct >= _tp else ""
             )
         else:
-            _progress  = 0
-            _bar_color = "#334155"
-            _tp_label  = "미설정"
-            _status_badge = f"<span style='color:#475569;font-size:0.7rem'>설정→ 리스크 탭 &gt; 에이전트 목표 수익</span>"
+            _progress   = 0
+            _bar_color  = "#334155"
+            _tp_label   = "미설정"
+            _badge_html = "<span style='color:#475569;font-size:0.7rem'>설정 → 리스크 탭 &gt; 에이전트 목표 수익</span>"
 
         _pct_color = "#4ade80" if _pct >= 0 else "#f87171"
-        _tp_rows_html += f"""
-          <div style='background:#0f172a;border-radius:10px;padding:0.9rem 1.1rem;
-                      border:1px solid #1e293b;margin-bottom:0.6rem;'>
-            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem'>
-              <span style='font-weight:700;color:#e2e8f0;font-size:0.9rem'>{_aemoji} {_aname}</span>
-              <div style='display:flex;align-items:center;gap:0.5rem'>
-                {_status_badge}
-                <span style='color:#64748b;font-size:0.75rem'>{_hlbl}</span>
-              </div>
-            </div>
-            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem'>
-              <div>
-                <span style='color:#64748b;font-size:0.72rem'>당일 실현 손익&nbsp;</span>
-                <span style='font-size:0.95rem;font-weight:700;color:{_pct_color}'>{_pct:+.2%}</span>
-                <span style='color:#475569;font-size:0.7rem'>&nbsp;({_real:+,.0f}원)</span>
-              </div>
-              <div>
-                <span style='color:#64748b;font-size:0.72rem'>목표 &nbsp;</span>
-                <span style='font-size:0.9rem;font-weight:700;color:#94a3b8'>{_tp_label}</span>
-              </div>
-            </div>
-            <div style='background:#1e293b;border-radius:6px;height:10px;position:relative;'>
-              <div style='background:{_bar_color};width:{_progress:.1f}%;height:10px;
-                          border-radius:6px;transition:width 0.3s;'></div>
-            </div>
-            <div style='display:flex;justify-content:space-between;margin-top:0.25rem'>
-              <span style='color:#334155;font-size:0.65rem'>0%</span>
-              <span style='color:#334155;font-size:0.65rem'>{_tp_label}</span>
-            </div>
-          </div>"""
 
-    st.markdown(_tp_rows_html, unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='background:#0f172a;border-radius:10px;padding:0.9rem 1.1rem;"
+            f"border:1px solid #1e293b;margin-bottom:0.6rem'>"
+            # ── 헤더 행 ──
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;margin-bottom:0.45rem'>"
+            f"<span style='font-weight:700;color:#e2e8f0;font-size:0.9rem'>{_aemoji} {_aname}</span>"
+            f"<span style='display:flex;align-items:center;gap:0.5rem'>"
+            f"{_badge_html}"
+            f"<span style='color:#64748b;font-size:0.75rem'>{_hlbl}</span>"
+            f"</span></div>"
+            # ── 수치 행 ──
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;margin-bottom:0.35rem'>"
+            f"<div><span style='color:#64748b;font-size:0.72rem'>당일 실현 손익 &nbsp;</span>"
+            f"<span style='font-size:0.95rem;font-weight:700;color:{_pct_color}'>{_pct:+.2%}</span>"
+            f"<span style='color:#475569;font-size:0.7rem'>&nbsp;({_real:+,.0f}원)</span></div>"
+            f"<div><span style='color:#64748b;font-size:0.72rem'>목표 &nbsp;</span>"
+            f"<span style='font-size:0.9rem;font-weight:700;color:#94a3b8'>{_tp_label}</span></div>"
+            f"</div>"
+            # ── 진척도 바 ──
+            f"<div style='background:#1e293b;border-radius:6px;height:10px'>"
+            f"<div style='background:{_bar_color};width:{_progress:.1f}%;"
+            f"height:10px;border-radius:6px'></div></div>"
+            f"<div style='display:flex;justify-content:space-between;margin-top:0.2rem'>"
+            f"<span style='color:#334155;font-size:0.65rem'>0%</span>"
+            f"<span style='color:#334155;font-size:0.65rem'>{_tp_label}</span>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
 
     # 결정론적 계산 검증 박스
     st.markdown(

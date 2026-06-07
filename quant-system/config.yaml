@@ -40,14 +40,16 @@ agents:
   trend_rider:
     enabled: true
     ma_periods:
-      fast: 20
-      long: 120
-      slow: 60
+      fast: 5        # 5일선 (단기 — 골든크로스 기준선)
+      slow: 20       # 20일선 (중기 — 골든크로스 기준선)
+      long: 60       # 60일선 (추가 추세 확인용)
     macd:
       fast: 12
       signal: 9
       slow: 26
-    min_trend_strength: 0.01
+    volume_spike_multiplier: 1.5   # 거래량 급증 기준 (20일 평균 대비 배수)
+    volume_avg_period: 20          # 거래량 이동평균 기간 (일)
+    min_trend_strength: 0.005
     rebalance_days: 7
     top_n_stocks: 8
   value_finder:

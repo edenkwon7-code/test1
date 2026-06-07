@@ -312,6 +312,15 @@ class ChiefOfStaff:
 
     시장 레짐에 따라 3대 에이전트의 가동률과 예산 배분을 결정합니다.
     서킷 브레이커와 킬스위치 상태를 관리합니다.
+
+    ┌── 의사결정 우선순위 (높을수록 먼저 적용) ─────────────────┐
+    │  Lv.1  1차 하드코딩 서킷 브레이커 (이 파일 최상단)        │
+    │        VIX≥30 OR 이평선 완전 역배열 → 즉각 0% 강제 청산   │
+    │  Lv.2  일일 MDD 서킷 브레이커 (손실 한도 초과)            │
+    │  Lv.3  킬스위치 (수동 긴급 정지)                          │
+    │  Lv.4  레짐 기반 자동 배분 (공격/방어/전시)               │
+    │  Lv.5  (미래) DQN AI 동적 재배분 ← Lv.1~4가 항상 Override │
+    └───────────────────────────────────────────────────────────┘
     """
 
     def __init__(self, config: dict):
@@ -325,6 +334,8 @@ class ChiefOfStaff:
         self._kill_switch_active = False
         self._daily_pnl_pct = 0.0
         self._current_regime: Optional[RegimeSignal] = None
+        self._liquidation_pending = False          # 전량 청산 대기 플래그
+        self._supreme_cb_reason: str = ""          # 1차 서킷브레이커 발동 사유
 
     @property
     def is_circuit_breaker_active(self) -> bool:
@@ -337,6 +348,73 @@ class ChiefOfStaff:
     @property
     def current_regime(self) -> Optional[RegimeSignal]:
         return self._current_regime
+
+    @property
+    def is_liquidation_pending(self) -> bool:
+        """1차 서킷 브레이커 발동으로 전량 청산 대기 중인지 여부"""
+        return self._liquidation_pending
+
+    @property
+    def supreme_cb_reason(self) -> str:
+        """1차 서킷 브레이커 발동 사유"""
+        return self._supreme_cb_reason
+
+    # ══════════════════════════════════════════════════════════════════
+    # 🚨 Lv.1: 1차 하드코딩 서킷 브레이커 — 절대 권력 (DQN Override)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _check_supreme_circuit_breaker(
+        self,
+        current_vix: float,
+        close_series: pd.Series,
+    ) -> tuple[bool, str]:
+        """
+        절대 권력의 1차 방어선 — 어떤 AI 판단도 이 함수를 이길 수 없습니다.
+
+        ┌─────────────────────────────────────────────────────────────┐
+        │  조건 A: VIX ≥ 30  (공포지수 임계치, 극단적 시장 공포)     │
+        │  조건 B: 60일선 > 20일선 > 5일선  (이평선 완전 역배열)     │
+        │                                                             │
+        │  A OR B 충족 시:                                            │
+        │  → 총예산 가동률 0%  (현금 100%)                           │
+        │  → 신규 매수 전면 금지                                      │
+        │  → 보유 종목 전량 청산 대기 (liquidate_pending = True)      │
+        │  → 향후 DQN AI의 긍정적 예측 결과도 무시                   │
+        └─────────────────────────────────────────────────────────────┘
+        """
+        # ── 조건 A: VIX 임계치 ───────────────────────────────────────
+        if current_vix >= 30:
+            reason = (
+                f"VIX OVERRIDE: VIX={current_vix:.1f} ≥ 30 "
+                f"(공포지수 임계치 초과 — 극단적 시장 공포 감지)"
+            )
+            logger.critical(
+                f"\n{'═'*60}\n"
+                f"  🚨 [1차 서킷브레이커 — 조건A] {reason}\n"
+                f"{'═'*60}"
+            )
+            return True, reason
+
+        # ── 조건 B: 이동평균선 완전 역배열 ───────────────────────────
+        if len(close_series) >= 60:
+            ma5  = float(close_series.rolling(5).mean().iloc[-1])
+            ma20 = float(close_series.rolling(20).mean().iloc[-1])
+            ma60 = float(close_series.rolling(60).mean().iloc[-1])
+
+            if ma60 > ma20 > ma5:
+                reason = (
+                    f"MA역배열 OVERRIDE: MA60={ma60:,.2f} > MA20={ma20:,.2f} > MA5={ma5:,.2f} "
+                    f"(이평선 완전 역배열 — 구조적 하락 추세 확인)"
+                )
+                logger.critical(
+                    f"\n{'═'*60}\n"
+                    f"  🚨 [1차 서킷브레이커 — 조건B] {reason}\n"
+                    f"  MA5={ma5:,.2f} | MA20={ma20:,.2f} | MA60={ma60:,.2f}\n"
+                    f"{'═'*60}"
+                )
+                return True, reason
+
+        return False, ""
 
     def activate_kill_switch(self, reason: str = "수동 발동"):
         """긴급 킬스위치 - 즉시 모든 거래 정지"""
@@ -449,13 +527,65 @@ class ChiefOfStaff:
         """
         전체 비서실장 분석 사이클 실행
 
+        ┌── 실행 순서 ──────────────────────────────────────────────┐
+        │  STEP 0  레짐 분석 (VIX + MA배열 + MACD)                 │
+        │  STEP 1  🚨 1차 하드코딩 서킷 브레이커 체크 (최우선)     │
+        │          → 발동 시 즉시 0% 배분 + 청산 대기 반환         │
+        │  STEP 2  일일 MDD 서킷 브레이커 체크                     │
+        │  STEP 3  킬스위치 체크                                    │
+        │  STEP 4  레짐 기반 에이전트 배분 결정                     │
+        └───────────────────────────────────────────────────────────┘
+
         Returns:
             (레짐 신호, 에이전트 배분, 거래가능여부, 사유)
         """
+        # ── STEP 0: 레짐 분석 ────────────────────────────────────────
         regime_signal = self.analyzer.analyze()
         self._current_regime = regime_signal
 
-        # VIX 기반 서킷 브레이커 체크
+        # ════════════════════════════════════════════════════════════
+        # 🚨 STEP 1: 1차 하드코딩 서킷 브레이커 (절대 최우선)
+        #    DQN AI가 아무리 긍정적인 수익을 예측해도 이 블록을 넘을 수 없음
+        # ════════════════════════════════════════════════════════════
+        spx_data = self.analyzer._fetch_market_data(
+            self.analyzer.market_index, period="1y"
+        )
+        close_for_cb = (
+            spx_data["Close"].squeeze()
+            if not spx_data.empty
+            else pd.Series(dtype=float)
+        )
+        supreme_triggered, supreme_reason = self._check_supreme_circuit_breaker(
+            regime_signal.vix, close_for_cb
+        )
+
+        if supreme_triggered:
+            self._liquidation_pending = True
+            self._supreme_cb_reason = supreme_reason
+            self._circuit_breaker_active = True
+            self._circuit_breaker_triggered_at = datetime.now()
+
+            liquidation_alloc = AgentAllocation(
+                value_finder=0.0,
+                trend_rider=0.0,
+                swing_master=0.0,
+                micro_sniper=0.0,
+                cash=1.0,              # 현금 100% — 투자 전면 중단
+                sniper_fixed_amount=0.0,
+            )
+            stop_reason = f"[1차서킷브레이커] {supreme_reason} → 전량청산대기·신규매수금지"
+            logger.critical(
+                f"[비서실장] 최종 지시: 가동률=0% | 현금=100% | 전량청산대기=True\n"
+                f"  사유: {supreme_reason}\n"
+                f"  ※ 이 지시는 DQN AI 예측, 레짐 분석, 수동 설정 모두를 Override합니다."
+            )
+            return regime_signal, liquidation_alloc, False, stop_reason
+
+        # ── STEP 1 미발동 시 청산 플래그 해제 ───────────────────────
+        self._liquidation_pending = False
+        self._supreme_cb_reason = ""
+
+        # ── STEP 2: VIX 기반 일반 서킷 브레이커 ─────────────────────
         if regime_signal.vix >= self.cfg["circuit_breaker"]["vix_trigger"]:
             if not self._circuit_breaker_active:
                 self._circuit_breaker_active = True
@@ -464,6 +594,7 @@ class ChiefOfStaff:
                     f"[서킷브레이커] VIX 트리거 발동! VIX={regime_signal.vix:.1f}"
                 )
 
+        # ── STEP 3~4: 배분 결정 및 거래 가능 여부 ───────────────────
         allocation = self.get_allocation(regime_signal.regime)
         can_trade, reason = self.can_trade()
 

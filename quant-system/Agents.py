@@ -279,21 +279,26 @@ class ValueFinderAgent(BaseAgent):
 
 class TrendRiderAgent(BaseAgent):
     """
-    트렌드라이더 에이전트
-    - 골든크로스 / 데드크로스 (이동평균 교차)
-    - MACD 모멘텀 확인
+    트렌드라이더 에이전트 (Whipsaw 방지 강화판)
+    ───────────────────────────────────────────
+    매수 조건 3중 AND (모두 충족해야 진입):
+      1. 골든크로스: 5일선이 20일선을 상향 돌파
+      2. MACD ≥ 0:  MACD 라인이 0선 이상 (양의 모멘텀 확인)
+      3. 거래량 급증: 현재 거래량 ≥ 20일 평균 × 1.5배 (가짜 돌파 필터)
     """
 
     def __init__(self, config: dict):
         super().__init__(config, "trend_rider")
         self.cfg = self.agent_cfg
-        self.ma_fast = self.cfg["ma_periods"]["fast"]
-        self.ma_slow = self.cfg["ma_periods"]["slow"]
+        self.ma_fast = self.cfg["ma_periods"]["fast"]   # 5일
+        self.ma_slow = self.cfg["ma_periods"]["slow"]   # 20일
         self.macd_cfg = self.cfg["macd"]
         self.top_n = self.cfg["top_n_stocks"]
+        self.vol_multiplier = self.cfg.get("volume_spike_multiplier", 1.5)
+        self.vol_avg_period = self.cfg.get("volume_avg_period", 20)
 
     def _detect_crossover(self, close: pd.Series) -> tuple[str, float]:
-        """이동평균 교차 탐지"""
+        """이동평균 교차 탐지 (5일선 vs 20일선)"""
         if len(close) < self.ma_slow + 5:
             return "NONE", 0.0
 
@@ -302,8 +307,6 @@ class TrendRiderAgent(BaseAgent):
 
         prev_diff = ma_fast.iloc[-2] - ma_slow.iloc[-2]
         curr_diff = ma_fast.iloc[-1] - ma_slow.iloc[-1]
-
-        # 현재 정렬 강도
         strength = abs(curr_diff) / close.iloc[-1]
 
         if prev_diff < 0 and curr_diff > 0:
@@ -315,8 +318,20 @@ class TrendRiderAgent(BaseAgent):
         else:
             return "BELOW", strength
 
+    def _calc_macd_value(self, close: pd.Series) -> float:
+        """
+        MACD 라인 값 반환 — 0선 상향 돌파 여부 판단용
+        (MACD ≥ 0 → 강한 상승 모멘텀, MACD < 0 → 하락 모멘텀)
+        """
+        if len(close) < self.macd_cfg["slow"]:
+            return float("nan")
+        ema_fast = close.ewm(span=self.macd_cfg["fast"], adjust=False).mean()
+        ema_slow = close.ewm(span=self.macd_cfg["slow"], adjust=False).mean()
+        macd_line = ema_fast - ema_slow
+        return float(macd_line.iloc[-1])
+
     def _calc_macd_signal(self, close: pd.Series) -> tuple[str, float]:
-        """MACD 모멘텀 신호"""
+        """MACD 히스토그램 방향 신호 (방향 강도 보조 지표)"""
         if len(close) < self.macd_cfg["slow"] + self.macd_cfg["signal"]:
             return "NEUTRAL", 0.0
 
@@ -336,10 +351,32 @@ class TrendRiderAgent(BaseAgent):
         else:
             return "NEUTRAL", abs(curr_hist)
 
+    def _check_volume_spike(self, data: pd.DataFrame) -> tuple[bool, float]:
+        """
+        거래량 급증 확인 — Whipsaw(가짜 돌파) 필터
+        현재 거래량 ≥ 20일 평균 거래량 × 1.5배일 때만 True
+        """
+        if "Volume" not in data.columns or len(data) < self.vol_avg_period:
+            return False, 0.0
+        vol = data["Volume"].squeeze()
+        curr_vol = float(vol.iloc[-1])
+        avg_vol = float(vol.rolling(self.vol_avg_period).mean().iloc[-1])
+        if avg_vol <= 0:
+            return False, 0.0
+        ratio = curr_vol / avg_vol
+        return ratio >= self.vol_multiplier, ratio
+
     def generate_signals(self, budget: float) -> list[TradeSignal]:
-        """트렌드라이더 매수/매도 신호 생성"""
-        logger.info(f"[트렌드라이더] {len(self.universe)}개 종목 추세 분석")
+        """
+        트렌드라이더 매수 신호 생성 — 3중 AND 조건 엄격 적용
+        단 하나라도 미충족 시 해당 종목 완전 배제 (Whipsaw 방지)
+        """
+        logger.info(
+            f"[트렌드라이더] {len(self.universe)}개 종목 추세 분석 "
+            f"| 조건: 골든크로스(5/20) AND MACD≥0 AND 거래량≥{self.vol_multiplier}x"
+        )
         buy_candidates = []
+        filtered_gc = filtered_macd = filtered_vol = 0
 
         for ticker in self.universe:
             data = self._fetch_price_data(ticker, period="1y")
@@ -347,38 +384,66 @@ class TrendRiderAgent(BaseAgent):
                 continue
 
             close = data["Close"].squeeze()
+
+            # ── AND 조건 1: 골든크로스 전용 (ABOVE 허용 안 함) ──
             cross_signal, cross_strength = self._detect_crossover(close)
-            macd_signal, macd_strength = self._calc_macd_signal(close)
-
-            # 복합 점수 계산
-            score = 0.0
-            reasons = []
-
-            if cross_signal == "GOLDEN_CROSS":
-                score += 0.5
-                reasons.append(f"골든크로스(강도={cross_strength:.4f})")
-            elif cross_signal == "ABOVE":
-                score += 0.3
-                reasons.append(f"MA위(간격={cross_strength:.4f})")
-            elif cross_signal in ("DEATH_CROSS", "BELOW"):
-                continue  # 하락 추세 제외
-
-            if macd_signal == "BULLISH":
-                score += 0.5
-                reasons.append(f"MACD상승모멘텀")
-            elif macd_signal == "NEUTRAL":
-                score += 0.1
-            else:
-                score -= 0.2
+            if cross_signal != "GOLDEN_CROSS":
+                if cross_signal in ("DEATH_CROSS", "BELOW", "ABOVE", "NONE"):
+                    filtered_gc += 1
+                continue
 
             min_strength = self.cfg["min_trend_strength"]
             if cross_strength < min_strength:
+                filtered_gc += 1
                 continue
 
-            if score > 0.3:
-                buy_candidates.append(
-                    {"ticker": ticker, "score": score, "reasons": reasons}
+            # ── AND 조건 2: MACD 0선 이상 (양의 모멘텀) ──────────
+            macd_val = self._calc_macd_value(close)
+            if pd.isna(macd_val) or macd_val < 0:
+                filtered_macd += 1
+                logger.debug(
+                    f"[트렌드라이더] {ticker} MACD={macd_val:.4f} < 0 "
+                    f"→ 음의 모멘텀, 배제"
                 )
+                continue
+
+            # ── AND 조건 3: 거래량 급증 (Whipsaw 필터) ───────────
+            vol_ok, vol_ratio = self._check_volume_spike(data)
+            if not vol_ok:
+                filtered_vol += 1
+                logger.debug(
+                    f"[트렌드라이더] {ticker} 거래량={vol_ratio:.2f}x < {self.vol_multiplier}x "
+                    f"→ 가짜 돌파 의심, 배제"
+                )
+                continue
+
+            # ✅ 3중 AND 모두 충족 — 유효 신호
+            macd_signal, macd_strength = self._calc_macd_signal(close)
+            score = (
+                0.50                                            # 골든크로스 기본
+                + (0.25 if macd_signal == "BULLISH" else 0.10)  # MACD 방향 가산
+                + min(0.25, (vol_ratio - self.vol_multiplier) * 0.1)  # 거래량 초과분 가산
+            )
+
+            reasons = [
+                f"골든크로스(5일>{self.ma_slow}일,강도={cross_strength:.4f})",
+                f"MACD={macd_val:.4f}≥0(0선돌파)",
+                f"거래량={vol_ratio:.2f}x≥{self.vol_multiplier}x(급증확인)",
+            ]
+            if macd_signal == "BULLISH":
+                reasons.append("MACD히스토그램상승")
+
+            logger.info(
+                f"[트렌드라이더] ✅ {ticker} 3중조건충족 | 점수={score:.2f} | "
+                + " | ".join(reasons)
+            )
+            buy_candidates.append({"ticker": ticker, "score": score, "reasons": reasons})
+
+        logger.info(
+            f"[트렌드라이더] 필터링 결과 | "
+            f"골든크로스미충족={filtered_gc} | MACD미충족={filtered_macd} | "
+            f"거래량미충족={filtered_vol} | 최종통과={len(buy_candidates)}개"
+        )
 
         buy_candidates.sort(key=lambda x: x["score"], reverse=True)
         top_candidates = buy_candidates[: self.top_n]
@@ -399,16 +464,20 @@ class TrendRiderAgent(BaseAgent):
                 )
             )
 
-        logger.info(f"[트렌드라이더] {len(signals)}개 매수 신호 생성")
+        logger.info(f"[트렌드라이더] {len(signals)}개 최종 매수 신호 생성 완료")
         return signals
 
     def get_agent_status(self) -> dict:
         return {
             "name": "트렌드라이더",
-            "strategy": f"MA교차({self.ma_fast}/{self.ma_slow}) + MACD",
+            "strategy": (
+                f"골든크로스({self.ma_fast}/{self.ma_slow}일) "
+                f"AND MACD≥0 AND 거래량≥{self.vol_multiplier}x"
+            ),
             "rebalance_days": self.cfg["rebalance_days"],
             "ma_fast": self.ma_fast,
             "ma_slow": self.ma_slow,
+            "vol_multiplier": self.vol_multiplier,
         }
 
 

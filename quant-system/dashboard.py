@@ -413,6 +413,66 @@ def _show_login_page():
 
     with _lp.container():
 
+      # ── 로그인 페이지 전용 CSS (lp.empty()로 로그인 후 완전 제거됨) ──
+      st.markdown("""<style>
+        [data-testid="stMainBlockContainer"],.main .block-container{
+          background:#0a0f1e!important;
+          padding-top:0!important;padding-bottom:0!important;
+        }
+        [data-testid="stHeader"]{background:#0a0f1e!important;}
+        [data-testid="stTabs"] [role="tablist"]{
+          background:#0d1633!important;border-radius:12px 12px 0 0!important;
+          padding:0.5rem 0.5rem 0!important;gap:0.5rem!important;
+          border-bottom:none!important;
+        }
+        [data-testid="stTabs"] [role="tab"]{
+          color:#94a3b8!important;font-weight:600!important;
+          border-radius:8px 8px 0 0!important;
+          padding:0.55rem 1.75rem!important;font-size:0.875rem!important;
+          border:none!important;background:transparent!important;
+        }
+        [data-testid="stTabs"] [role="tab"][aria-selected="true"]{
+          background:#1e3a5f!important;color:#60a5fa!important;
+          border-bottom:2px solid #3b82f6!important;
+        }
+        [data-testid="stTabs"] [role="tab"]:hover{
+          background:rgba(59,130,246,0.1)!important;color:#93c5fd!important;
+        }
+        [data-testid="stForm"]{
+          background:#0d1a3a!important;border:1px solid #1e3a5f!important;
+          border-radius:0 0 14px 14px!important;padding:1.5rem 1.5rem 1.25rem!important;
+          margin-top:0!important;
+        }
+        [data-testid="stTextInput"] input{
+          background:#162040!important;border:1px solid #2d4a7a!important;
+          color:#e2e8f0!important;border-radius:8px!important;
+          font-size:0.9375rem!important;
+        }
+        [data-testid="stTextInput"] input::placeholder{color:#475569!important;}
+        [data-testid="stTextInput"] input:focus{
+          border-color:#3b82f6!important;box-shadow:0 0 0 3px rgba(59,130,246,0.2)!important;
+        }
+        [data-testid="stTextInput"] label p{
+          color:#94a3b8!important;font-weight:500!important;font-size:0.875rem!important;
+        }
+        [data-testid="stFormSubmitButton"]>button{
+          background:linear-gradient(135deg,#1d4ed8,#3b82f6)!important;
+          color:#ffffff!important;font-weight:700!important;border:none!important;
+          border-radius:8px!important;font-size:0.9375rem!important;
+          letter-spacing:0.02em!important;padding:0.65rem 1.5rem!important;
+        }
+        [data-testid="stFormSubmitButton"]>button:hover{
+          background:linear-gradient(135deg,#1e40af,#2563eb)!important;
+          color:#ffffff!important;
+        }
+        [data-testid="stFormSubmitButton"]>button p{
+          color:#ffffff!important;font-weight:700!important;
+        }
+        [data-testid="stInfo"],[data-testid="stSuccess"],[data-testid="stError"]{
+          border-radius:8px!important;font-size:0.875rem!important;
+        }
+      </style>""", unsafe_allow_html=True)
+
       # ── HERO ──────────────────────────────────────────────
       st.markdown("""
     <div style="background:linear-gradient(160deg,#0a0f1e 0%,#0d1a3a 60%,#0a2040 100%);
@@ -465,7 +525,15 @@ def _show_login_page():
     </div>""", unsafe_allow_html=True)
 
       # ── 로그인 / 회원가입 폼 ───────────────────────────────
-      st.markdown("<div style='background:#0a0f1e;padding:2rem 0 0.5rem;'></div>", unsafe_allow_html=True)
+      st.markdown("""
+    <div style="background:#0a0f1e;padding:2.5rem 2rem 0;text-align:center;margin:0 -2rem;">
+      <div style="display:inline-flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+        <div style="width:28px;height:1px;background:linear-gradient(90deg,transparent,#3b82f6);"></div>
+        <span style="font-size:0.75rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+                     color:#3b82f6;">지금 시작하기</span>
+        <div style="width:28px;height:1px;background:linear-gradient(90deg,#3b82f6,transparent);"></div>
+      </div>
+    </div>""", unsafe_allow_html=True)
       _lf_l, _lf_m, _lf_r = st.columns([1, 2, 1])
       with _lf_m:
           if _is_first:

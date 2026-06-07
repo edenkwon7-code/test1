@@ -1,0 +1,191 @@
+agents:
+  micro_sniper:
+    adx:
+      period: 15
+      threshold: 20
+    bollinger:
+      mid_level: 0.5
+      period: 47
+      std_dev: 2.0
+    budget_pct: 0.1
+    consecutive_loss_limit: 3
+    enabled: true
+    max_daily_trades: 20
+    rsi:
+      overbought: 33
+      oversold: 21
+      period: 33
+    scan_interval_minutes: 1
+    stochastic:
+      d_period: 3
+      k_period: 14
+      overbought: 80
+      oversold: 20
+    stop_loss_pct: 0.02
+    take_profit_pct: 0.015
+    top_n_stocks: 5
+  swing_master:
+    bollinger:
+      period: 20
+      std_dev: 2.0
+    enabled: true
+    min_signal_score: 2
+    rebalance_days: 3
+    rsi:
+      overbought: 70
+      oversold: 30
+      period: 14
+    target_win_rate: 0.875
+    top_n_stocks: 6
+  trend_rider:
+    enabled: true
+    ma_periods:
+      fast: 20
+      long: 120
+      slow: 60
+    macd:
+      fast: 12
+      signal: 9
+      slow: 26
+    min_trend_strength: 0.01
+    rebalance_days: 7
+    top_n_stocks: 8
+  value_finder:
+    enabled: true
+    lookback_years: 3
+    magic_formula_weight:
+      earnings_yield: 0.5
+      roic: 0.5
+    per_min_threshold: 5
+    piotroski_items: 5
+    piotroski_min_score: 3
+    rebalance_days: 30
+    roa_min_threshold: 0.15
+    sortino_min_threshold: 0.2
+    top_n_stocks: 10
+backtest:
+  benchmark: ^GSPC
+  commission_rate: 0.00015
+  end_date: '2023-12-31'
+  initial_capital: 100000000
+  out_of_sample_end: '2024-12-31'
+  out_of_sample_start: '2024-01-01'
+  slippage_pct: 0.001
+  start_date: '2020-01-01'
+broker:
+  provider: kis                          # kis (한국투자증권) | kiwoom
+  live:
+    # ── 한국투자증권 KIS API ───────────────────────────────
+    app_key: ''                          # KIS Developers에서 발급
+    app_secret: ''                       # KIS Developers에서 발급
+    account_number: ''                   # 계좌번호 앞 8자리 (예: 12345678)
+    account_type: '01'                   # 01=실전, 02=모의투자
+    base_url: 'https://openapi.koreainvestment.com:9443'
+    # 모의: https://openapivts.koreainvestment.com:29443
+    order_timeout_sec: 10
+chief_of_staff:
+  circuit_breaker:
+    daily_loss_trigger: 0.05
+    vix_trigger: 30
+  market_regime:
+    lookback_days: 252
+    ma_periods:
+      long: 120
+      medium: 60
+      short: 20
+    macd:
+      fast: 12
+      signal: 9
+      slow: 26
+    use_ma_trend_filter: true
+    vix_thresholds:
+      defensive: 20
+      offensive: 15
+      wartime: 30
+  regime_allocation:
+    DEFENSIVE:
+      cash: 0.1
+      micro_sniper: 0.0
+      swing_master: 0.15
+      trend_rider: 0.6
+      value_finder: 0.15
+    OFFENSIVE:
+      cash: 0.0
+      micro_sniper: 0.1
+      swing_master: 0.2
+      trend_rider: 0.35
+      value_finder: 0.35
+    WARTIME:
+      cash: 0.85
+      micro_sniper: 0.0
+      swing_master: 0.05
+      trend_rider: 0.0
+      value_finder: 0.1
+live_trading:
+  full_cycle_time: 09:05
+  interval_minutes: 60
+  market_close: '15:30'
+  market_open: 09:00
+  max_retries: 3
+  run_on_weekends: false
+notifications:
+  daily_report:
+    enabled: true
+    send_after_hour_utc: 21
+    send_before_hour_utc: 23
+paper_trading:
+  commission_rate: 0.00015
+  currency: KRW
+  initial_capital: 100000000
+  slippage_pct: 0.001
+risk_management:
+  circuit_breaker_cooldown_hours: 24
+  daily_max_drawdown: 0.05
+  max_positions: 20
+  position_max_pct: 0.1
+  stop_loss_pct: 0.07
+  take_profit_pct: 0.15
+system:
+  data_cache_dir: .cache
+  db_path: quant_system.db
+  log_level: INFO
+  market: KR
+  mode: paper
+universe:
+  benchmark: KS11
+  indices:
+  - KS11
+  - KQ11
+  market_index: KS11
+  stocks:
+  - 005930
+  - '000660'
+  - '373220'
+  - '207940'
+  - 005380
+  - '000270'
+  - 005490
+  - 051910
+  - '006400'
+  - 068270
+  - '035720'
+  - '035420'
+  - '105560'
+  - '055550'
+  - 086790
+  - '316140'
+  - '017670'
+  - '030200'
+  - '066570'
+  - '012450'
+  - '034020'
+  - 033780
+  - '015760'
+  - '010130'
+  - 028260
+  - '012330'
+  - '034730'
+  - '003550'
+  - 090430
+  - '259960'
+  vix_ticker: ^VIX

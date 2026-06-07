@@ -396,19 +396,25 @@ db: QuantDatabase = st.session_state.db
 # 로그인 페이지 (이메일/비밀번호 — iframe 없는 순수 st.markdown)
 # ═══════════════════════════════════════════════════════════
 def _show_login_page():
-    """랜딩 페이지 — iframe 없이 st.markdown 전용, <style> 블록 없음 (CSS 호이스팅 방지)"""
+    """랜딩 페이지.
+
+    핵심 원칙:
+    - st.empty() 컨테이너로 전체 페이지를 감싼다.
+    - st.rerun() 직전에 _lp.empty()를 호출해 명시적으로 제거한다.
+      → 폼 제출 후 st.rerun()이 중간에 호출될 때 "아직 렌더링 안 된"
+        하위 섹션들이 이전 실행 결과물로 잔류하는 버그를 방지.
+    - <style> 블록 절대 사용 금지 (브라우저 <head> 호이스팅 문제).
+    """
 
     _is_first = db.count_users() == 0
 
-    # ──────────────────────────────────────────────────────────
-    # ⚠️  <style> 블록을 여기에 넣지 말 것.
-    #    st.markdown()의 <style>은 브라우저 <head>에 호이스팅되어
-    #    로그인 후 st.rerun()을 해도 제거되지 않음.
-    #    모든 스타일은 인라인 style 속성으로만 처리.
-    # ──────────────────────────────────────────────────────────
+    # 전체 페이지를 단일 empty 컨테이너로 감쌈
+    _lp = st.empty()
 
-    # ── HERO ────────────────────────────────────────────────
-    st.markdown("""
+    with _lp.container():
+
+      # ── HERO ──────────────────────────────────────────────
+      st.markdown("""
     <div style="background:linear-gradient(160deg,#0a0f1e 0%,#0d1a3a 60%,#0a2040 100%);
                 padding:5rem 2rem 3rem;text-align:center;position:relative;overflow:hidden;
                 margin:-1.5rem -2rem 0;">
@@ -458,68 +464,70 @@ def _show_login_page():
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # ── 로그인 / 회원가입 폼 ─────────────────────────────────
-    st.markdown("<div style='background:#0a0f1e;padding:2rem 0 0.5rem;'></div>", unsafe_allow_html=True)
-    _lf_l, _lf_m, _lf_r = st.columns([1, 2, 1])
-    with _lf_m:
-        if _is_first:
-            st.success("🎉 첫 번째 가입 — 자동으로 관리자가 됩니다.")
-        _tab_login, _tab_reg = st.tabs(["🔑 로그인", "📝 회원가입"])
+      # ── 로그인 / 회원가입 폼 ───────────────────────────────
+      st.markdown("<div style='background:#0a0f1e;padding:2rem 0 0.5rem;'></div>", unsafe_allow_html=True)
+      _lf_l, _lf_m, _lf_r = st.columns([1, 2, 1])
+      with _lf_m:
+          if _is_first:
+              st.success("🎉 첫 번째 가입 — 자동으로 관리자가 됩니다.")
+          _tab_login, _tab_reg = st.tabs(["🔑 로그인", "📝 회원가입"])
 
-        with _tab_login:
-            with st.form("login_form"):
-                _li_email = st.text_input("이메일", placeholder="example@email.com")
-                _li_pw    = st.text_input("비밀번호", type="password", placeholder="비밀번호 입력")
-                _li_sub   = st.form_submit_button("로그인", use_container_width=True, type="primary")
-            if _li_sub:
-                if not _li_email or not _li_pw:
-                    st.error("이메일과 비밀번호를 입력해주세요.")
-                else:
-                    _found = db.login_user(_li_email, _li_pw)
-                    if _found is None:
-                        st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
-                    else:
-                        st.session_state["user"]      = _found
-                        st.session_state["logged_in"] = True
-                        if _found.get("is_approved"):
-                            st.session_state["pending_approval"] = False
-                            st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_found["id"])
-                        else:
-                            st.session_state["pending_approval"] = True
-                        st.rerun()
+          with _tab_login:
+              with st.form("login_form"):
+                  _li_email = st.text_input("이메일", placeholder="example@email.com")
+                  _li_pw    = st.text_input("비밀번호", type="password", placeholder="비밀번호 입력")
+                  _li_sub   = st.form_submit_button("로그인", use_container_width=True, type="primary")
+              if _li_sub:
+                  if not _li_email or not _li_pw:
+                      st.error("이메일과 비밀번호를 입력해주세요.")
+                  else:
+                      _found = db.login_user(_li_email, _li_pw)
+                      if _found is None:
+                          st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
+                      else:
+                          st.session_state["user"]      = _found
+                          st.session_state["logged_in"] = True
+                          if _found.get("is_approved"):
+                              st.session_state["pending_approval"] = False
+                              st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_found["id"])
+                          else:
+                              st.session_state["pending_approval"] = True
+                          _lp.empty()   # 로그인 페이지 전체 명시적 제거
+                          st.rerun()
 
-        with _tab_reg:
-            if not _is_first:
-                st.info("📋 가입 후 관리자 승인을 받으면 서비스를 이용할 수 있습니다.")
-            with st.form("register_form"):
-                _rg_name  = st.text_input("이름", placeholder="홍길동")
-                _rg_email = st.text_input("이메일", placeholder="example@email.com")
-                _rg_pw    = st.text_input("비밀번호 (8자 이상)", type="password")
-                _rg_pw2   = st.text_input("비밀번호 확인", type="password")
-                _rg_sub   = st.form_submit_button("회원가입", use_container_width=True, type="primary")
-            if _rg_sub:
-                if not _rg_name or not _rg_email or not _rg_pw:
-                    st.error("모든 항목을 입력해주세요.")
-                elif len(_rg_pw) < 8:
-                    st.error("비밀번호는 8자 이상이어야 합니다.")
-                elif _rg_pw != _rg_pw2:
-                    st.error("비밀번호가 일치하지 않습니다.")
-                else:
-                    try:
-                        _nu = db.register_user(_rg_email, _rg_pw, _rg_name)
-                        if _nu.get("is_admin"):
-                            st.session_state["user"]             = _nu
-                            st.session_state["logged_in"]        = True
-                            st.session_state["pending_approval"] = False
-                            st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_nu["id"])
-                            st.rerun()
-                        else:
-                            st.success("🎉 회원가입 완료! 관리자 승인 후 로그인하세요.")
-                    except ValueError as _ve:
-                        st.error(str(_ve))
+          with _tab_reg:
+              if not _is_first:
+                  st.info("📋 가입 후 관리자 승인을 받으면 서비스를 이용할 수 있습니다.")
+              with st.form("register_form"):
+                  _rg_name  = st.text_input("이름", placeholder="홍길동")
+                  _rg_email = st.text_input("이메일", placeholder="example@email.com")
+                  _rg_pw    = st.text_input("비밀번호 (8자 이상)", type="password")
+                  _rg_pw2   = st.text_input("비밀번호 확인", type="password")
+                  _rg_sub   = st.form_submit_button("회원가입", use_container_width=True, type="primary")
+              if _rg_sub:
+                  if not _rg_name or not _rg_email or not _rg_pw:
+                      st.error("모든 항목을 입력해주세요.")
+                  elif len(_rg_pw) < 8:
+                      st.error("비밀번호는 8자 이상이어야 합니다.")
+                  elif _rg_pw != _rg_pw2:
+                      st.error("비밀번호가 일치하지 않습니다.")
+                  else:
+                      try:
+                          _nu = db.register_user(_rg_email, _rg_pw, _rg_name)
+                          if _nu.get("is_admin"):
+                              st.session_state["user"]             = _nu
+                              st.session_state["logged_in"]        = True
+                              st.session_state["pending_approval"] = False
+                              st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_nu["id"])
+                              _lp.empty()   # 로그인 페이지 전체 명시적 제거
+                              st.rerun()
+                          else:
+                              st.success("🎉 회원가입 완료! 관리자 승인 후 로그인하세요.")
+                      except ValueError as _ve:
+                          st.error(str(_ve))
 
-    # ── SECTION 2: Pain Point ────────────────────────────────
-    st.markdown("""
+      # ── SECTION 2: Pain Point ──────────────────────────────
+      st.markdown("""
     <div style="background:#0d1117;padding:4rem 2rem;">
     <div style="max-width:800px;margin:0 auto;text-align:center;">
       <div style="font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
@@ -563,8 +571,8 @@ def _show_login_page():
       </div>
     </div></div>""", unsafe_allow_html=True)
 
-    # ── SECTION 3: AI 비서진 ─────────────────────────────────
-    st.markdown("""
+      # ── SECTION 3: AI 비서진 ─────────────────────────────────
+      st.markdown("""
     <div style="background:#0a0f1e;padding:4rem 2rem;">
     <div style="max-width:900px;margin:0 auto;">
       <div style="text-align:center;margin-bottom:2.5rem;">
@@ -635,8 +643,8 @@ def _show_login_page():
       </div>
     </div></div>""", unsafe_allow_html=True)
 
-    # ── SECTION 4: 4중 방어 ──────────────────────────────────
-    st.markdown("""
+      # ── SECTION 4: 4중 방어 ──────────────────────────────────
+      st.markdown("""
     <div style="background:#060b14;padding:4rem 2rem;">
     <div style="max-width:680px;margin:0 auto;">
       <div style="text-align:center;margin-bottom:2rem;">
@@ -676,8 +684,8 @@ def _show_login_page():
       </div>
     </div></div>""", unsafe_allow_html=True)
 
-    # ── Bottom CTA & Footer ──────────────────────────────────
-    st.markdown("""
+      # ── Bottom CTA & Footer ────────────────────────────────
+      st.markdown("""
     <div style="background:linear-gradient(160deg,#0a0f1e,#0d1a3a);
                 padding:5rem 2rem 4rem;text-align:center;border-top:1px solid #1e293b;">
       <div style="font-size:clamp(1.25rem,3vw,1.875rem);font-weight:800;color:#f1f5f9;

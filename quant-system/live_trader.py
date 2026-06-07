@@ -84,6 +84,7 @@ def write_status(
         json.dumps(
             {
                 "running":        running,
+                "pid":            os.getpid(),
                 "started_at":     started_at,
                 "last_cycle_at":  last_cycle_at,
                 "next_cycle_at":  next_cycle_at,

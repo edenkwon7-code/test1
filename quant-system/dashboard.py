@@ -963,8 +963,22 @@ with st.sidebar:
     except Exception:
         _ts = {}
 
-    if _ts.get("running"):
-        st.success("가동 중")
+    # PID 생존 확인 (스테일 상태 파일 방지)
+    import os as _sb_os, subprocess as _sb_sp
+    _trader_pid = _ts.get("pid", 0)
+    _pid_alive  = False
+    if _trader_pid:
+        try:
+            _sb_os.kill(int(_trader_pid), 0)
+            _pid_alive = True
+        except (ProcessLookupError, PermissionError, OSError):
+            _pid_alive = False
+
+    # running=True 이고 (PID 살아있거나, PID 정보 없음)이면 가동 중
+    _trader_running = bool(_ts.get("running")) and (_pid_alive or not _trader_pid)
+
+    if _trader_running:
+        st.success("🟢 가동 중")
         _lc = _ts.get("last_cycle_at", "")
         _nc = _ts.get("next_cycle_at", "")
         if _lc:
@@ -979,10 +993,76 @@ with st.sidebar:
             except Exception:
                 _nc_str = _nc[:16]
             st.caption(f"다음 사이클: {_nc_str}")
-        st.caption(f"사이클 {_ts.get('cycle_count', 0)}회 · 레짐: {_ts.get('last_regime','—')}")
+        st.caption(
+            f"사이클 {_ts.get('cycle_count', 0)}회 · "
+            f"모니터링 {_ts.get('monitor_count', 0)}회 · "
+            f"레짐: {_ts.get('last_regime','—')}"
+        )
+        if _trader_pid:
+            st.caption(f"PID {_trader_pid}")
     else:
-        st.warning("정지됨")
-        st.caption("퀀트 자동매매 워크플로우를 시작하세요")
+        # ── 중단 원인 표시 ────────────────────────────────
+        _last_err = _ts.get("last_error", "")
+        _ks_on    = ks_state.get("emergency_stop", False)
+        _stale    = bool(_ts.get("running")) and not _pid_alive  # 상태 파일은 running이지만 PID가 죽음
+
+        if _stale:
+            st.warning("⚠️ 비정상 종료됨 (프로세스 크래시)")
+        elif _last_err:
+            _short = _last_err if len(_last_err) <= 60 else _last_err[:57] + "..."
+            st.warning(f"⚠️ 정지됨 — {_short}")
+        else:
+            st.warning("⚠️ 정지됨")
+
+        # ── 복구 방법 안내 ────────────────────────────────
+        if _ks_on:
+            _ks_reason = ks_state.get("kill_switch_reason", "")
+            st.error(f"🔴 킬스위치 활성 중\n사유: {_ks_reason}" if _ks_reason else "🔴 킬스위치 활성 중")
+            st.caption("위 [킬스위치 해제] 버튼으로 해제한 뒤 재시작하세요")
+        else:
+            # 복구 버튼
+            if st.button(
+                "🔄 자동매매 재시작",
+                use_container_width=True,
+                type="primary",
+                key="sidebar_trader_restart",
+            ):
+                _cwd  = str(Path(__file__).parent)
+                _log  = str(Path(__file__).parent / "trader.log")
+                # 좀비 PID 강제 종료 (혹시 남아있다면)
+                if _trader_pid and not _pid_alive:
+                    try:
+                        _sb_os.kill(int(_trader_pid), 9)
+                    except Exception:
+                        pass
+                try:
+                    with open(_log, "a") as _lf:
+                        _new_proc = _sb_sp.Popen(
+                            ["python3", "live_trader.py"],
+                            cwd=_cwd,
+                            stdout=_lf,
+                            stderr=_sb_sp.STDOUT,
+                            start_new_session=True,
+                        )
+                    db.log_system_event(
+                        "INFO", "Dashboard",
+                        f"자동매매 수동 재시작 — PID {_new_proc.pid}"
+                    )
+                    st.success(f"✅ 재시작 완료 (PID {_new_proc.pid})")
+                except Exception as _re:
+                    st.error(f"재시작 실패: {_re}")
+                time.sleep(2)
+                st.rerun()
+
+        # ── 최근 로그 확인 ────────────────────────────────
+        _log_path = Path(__file__).parent / "trader.log"
+        if _log_path.exists():
+            with st.expander("📋 최근 로그 (마지막 20줄)"):
+                try:
+                    _lines = _log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    st.code("\n".join(_lines[-20:]), language=None)
+                except Exception:
+                    st.caption("로그 읽기 실패")
 
     st.markdown("---")
 

@@ -28,6 +28,10 @@ class QuantDatabase:
             self.migrate_trading_features()
         except Exception:
             pass
+        try:
+            self.migrate_cash_flow_table()
+        except Exception:
+            pass
 
     @contextmanager
     def _get_conn(self):
@@ -868,6 +872,84 @@ class QuantDatabase:
                     "WHERE kakao_notify=1 "
                     "AND kakao_access_token IS NOT NULL "
                     "AND kakao_access_token != ''",
+                ).fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    # ── 일일 입출금 보정 (MDD 오작동 방지) ──────────────────────
+
+    def migrate_cash_flow_table(self):
+        """daily_cash_flows 테이블 생성 (최초 1회, 기존 DB 호환)"""
+        with self._get_conn() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS daily_cash_flows (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date         TEXT NOT NULL,
+                    amount       REAL NOT NULL,
+                    note         TEXT DEFAULT '',
+                    recorded_at  TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS day_start_capital (
+                    date         TEXT PRIMARY KEY,
+                    capital      REAL NOT NULL,
+                    recorded_at  TEXT NOT NULL
+                );
+                """
+            )
+
+    def get_daily_cash_flow(self, date_str: str) -> float:
+        """해당 날짜의 누적 순입출금액 합계 (입금 +, 출금 -)"""
+        try:
+            with self._get_conn() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(amount), 0) AS total FROM daily_cash_flows WHERE date=?",
+                    (date_str,),
+                ).fetchone()
+                return float(row["total"]) if row else 0.0
+        except Exception:
+            return 0.0
+
+    def add_daily_cash_flow(self, date_str: str, amount: float, note: str = "") -> None:
+        """입금(+) 또는 출금(-) 기록"""
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO daily_cash_flows (date, amount, note, recorded_at) VALUES (?, ?, ?, ?)",
+                (date_str, amount, note, now),
+            )
+
+    def get_day_start_capital(self, date_str: str) -> float:
+        """해당 날짜의 장 시작 자산 (기록이 없으면 0 반환)"""
+        try:
+            with self._get_conn() as conn:
+                row = conn.execute(
+                    "SELECT capital FROM day_start_capital WHERE date=?",
+                    (date_str,),
+                ).fetchone()
+                return float(row["capital"]) if row else 0.0
+        except Exception:
+            return 0.0
+
+    def set_day_start_capital(self, date_str: str, capital: float) -> None:
+        """장 시작 자산 저장 (하루 1회, 이미 기록 있으면 무시)"""
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO day_start_capital (date, capital, recorded_at)
+                   VALUES (?, ?, ?)""",
+                (date_str, capital, now),
+            )
+
+    def get_cash_flow_history(self, limit: int = 30) -> list[dict]:
+        """최근 입출금 내역 조회"""
+        try:
+            with self._get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT date, amount, note, recorded_at FROM daily_cash_flows "
+                    "ORDER BY recorded_at DESC LIMIT ?",
+                    (limit,),
                 ).fetchall()
                 return [dict(r) for r in rows]
         except Exception:

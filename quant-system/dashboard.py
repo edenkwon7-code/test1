@@ -4679,6 +4679,90 @@ with tabs[8]:
     st.markdown("---")
 
     # ══════════════════════════════════════════════════════
+    # 6-B. 💰 가상 입출금 (MDD 오작동 방지 보정)
+    # ══════════════════════════════════════════════════════
+    st.markdown("## 💰 가상 입출금 (MDD 보정)")
+    st.caption(
+        "모의투자 중 가상으로 자금을 입출금할 수 있습니다. "
+        "입출금액은 당일 MDD 계산 기준선에 반영되어 오인 킬스위치를 방지합니다."
+    )
+
+    _cf_col1, _cf_col2 = st.columns(2)
+
+    with _cf_col1:
+        st.markdown("##### 💵 가상 입금")
+        _dep_amount = st.number_input(
+            "입금액 (원)", min_value=0, max_value=500_000_000,
+            value=10_000_000, step=1_000_000, key="ni_deposit",
+            help="포트폴리오 현금 잔고 증가 + 오늘 MDD 기준선 상향 보정"
+        )
+        _dep_note = st.text_input("입금 메모", value="추가 자금 투입", key="ti_dep_note")
+        if st.button("💵 입금하기", key="btn_deposit", use_container_width=True, type="primary"):
+            if _dep_amount <= 0:
+                st.warning("입금액을 입력하세요.")
+            else:
+                try:
+                    from SimulationEngine import PaperTradingEngine as _PTE
+                    from config_loader import load_config as _lc2
+                    _pt = _PTE(_lc2(), db)
+                    _pt.register_cash_flow(_dep_amount, _dep_note or "가상입금")
+                    db.log_system_event("INFO", "Dashboard", f"가상입금: {_dep_amount:,.0f}원 ({_dep_note})")
+                    st.success(f"✅ {_dep_amount:,.0f}원 입금 완료. 현금 잔고에 반영됐습니다.")
+                    st.rerun()
+                except Exception as _ce:
+                    st.error(f"입금 실패: {_ce}")
+
+    with _cf_col2:
+        st.markdown("##### 🏧 가상 출금")
+        _portfolio_now = db.get_portfolio("paper")
+        _cash_now = _portfolio_now.get("cash", 0)
+        st.caption(f"현재 현금 잔고: **{_cash_now:,.0f}원**")
+        _wth_amount = st.number_input(
+            "출금액 (원)", min_value=0, max_value=int(max(_cash_now, 1)),
+            value=min(5_000_000, int(_cash_now)) if _cash_now > 0 else 0,
+            step=1_000_000, key="ni_withdraw",
+            help="포트폴리오 현금 잔고 감소 + 오늘 MDD 기준선 하향 보정"
+        )
+        _wth_note = st.text_input("출금 메모", value="자금 인출", key="ti_wth_note")
+        if st.button("🏧 출금하기", key="btn_withdraw", use_container_width=True):
+            if _wth_amount <= 0:
+                st.warning("출금액을 입력하세요.")
+            elif _wth_amount > _cash_now:
+                st.error(f"현금 잔고({_cash_now:,.0f}원) 초과 출금은 불가합니다.")
+            else:
+                try:
+                    from SimulationEngine import PaperTradingEngine as _PTE2
+                    from config_loader import load_config as _lc3
+                    _pt2 = _PTE2(_lc3(), db)
+                    _pt2.register_cash_flow(-_wth_amount, _wth_note or "가상출금")
+                    db.log_system_event("INFO", "Dashboard", f"가상출금: {_wth_amount:,.0f}원 ({_wth_note})")
+                    st.success(f"✅ {_wth_amount:,.0f}원 출금 완료.")
+                    st.rerun()
+                except Exception as _we:
+                    st.error(f"출금 실패: {_we}")
+
+    # ── 오늘 입출금 내역 ─────────────────────────────────────────
+    _today_cf = db.get_daily_cash_flow(datetime.now().strftime("%Y-%m-%d"))
+    if _today_cf != 0:
+        _cf_color = "#34d399" if _today_cf > 0 else "#f87171"
+        _cf_label = "순입금" if _today_cf > 0 else "순출금"
+        st.info(f"📊 오늘 {_cf_label}: **{_today_cf:+,.0f}원** — 이 금액은 MDD 손익 계산에서 제외됩니다.")
+
+    with st.expander("📋 최근 입출금 내역"):
+        _cf_history = db.get_cash_flow_history(limit=20)
+        if _cf_history:
+            import pandas as pd
+            _cf_df = pd.DataFrame(_cf_history)
+            _cf_df["구분"] = _cf_df["amount"].apply(lambda x: "💵 입금" if x >= 0 else "🏧 출금")
+            _cf_df["금액"] = _cf_df["amount"].apply(lambda x: f"{x:+,.0f}원")
+            _cf_df = _cf_df.rename(columns={"date": "날짜", "note": "메모", "recorded_at": "기록시각"})
+            st.dataframe(_cf_df[["날짜", "구분", "금액", "메모", "기록시각"]], use_container_width=True)
+        else:
+            st.caption("입출금 내역이 없습니다.")
+
+    st.markdown("---")
+
+    # ══════════════════════════════════════════════════════
     # 7. 백테스트 재실행
     # ══════════════════════════════════════════════════════
     st.markdown("### 🔄 수정된 전략으로 백테스트 재실행")

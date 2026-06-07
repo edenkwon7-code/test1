@@ -295,6 +295,11 @@ class PaperTradingEngine:
         self.slippage_pct = self.pt_cfg["slippage_pct"]
         self.mode = "paper"
 
+        # 일일 MDD 보정용 트래킹 — 입출금을 제외한 실제 손익만 측정
+        self._day_str: str = ""             # "YYYY-MM-DD"
+        self._day_start_capital: float = 0.0  # 오늘 첫 평가 시 총자산
+        self._day_net_cash_flow: float = 0.0  # 오늘 누적 순입출금액
+
         # 초기 포트폴리오 설정
         portfolio = db.get_portfolio(self.mode)
         if portfolio.get("total_capital", 0) == 0:
@@ -309,6 +314,56 @@ class PaperTradingEngine:
                 mode=self.mode,
             )
             logger.info(f"[모의투자] 초기 자본 설정: {initial:,.0f}")
+
+    def _reset_daily_tracking(self, total_value: float) -> None:
+        """날짜가 바뀌면 day_start_capital·net_cash_flow를 초기화한다."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._day_str != today:
+            self._day_str = today
+            # DB에 이미 기록된 당일 시작 자본이 있으면 재사용, 없으면 지금 값을 기록
+            saved = self.db.get_day_start_capital(today)
+            if saved > 0:
+                self._day_start_capital = saved
+            else:
+                self._day_start_capital = total_value
+                self.db.set_day_start_capital(today, total_value)
+            # 당일 입출금 합계도 DB에서 복원 (재시작 후에도 보정값 유지)
+            self._day_net_cash_flow = self.db.get_daily_cash_flow(today)
+            logger.info(
+                f"[일일보정] 날짜 전환 → {today} | "
+                f"시작자산={self._day_start_capital:,.0f} | "
+                f"누적입출금={self._day_net_cash_flow:+,.0f}"
+            )
+
+    def register_cash_flow(self, amount: float, note: str = "") -> None:
+        """
+        가상 입출금 등록 — MDD 계산에서 해당 금액을 제외해 오인 킬스위치를 방지.
+
+        amount > 0 : 입금 (포트폴리오 현금 증가 + MDD 기준선 보정)
+        amount < 0 : 출금 (포트폴리오 현금 감소 + MDD 기준선 보정)
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.add_daily_cash_flow(today, amount, note)
+        self._day_net_cash_flow += amount
+
+        # 포트폴리오 현금 반영
+        portfolio = self.db.get_portfolio(self.mode)
+        new_cash = max(0.0, portfolio.get("cash", 0) + amount)
+        new_total = new_cash + portfolio.get("invested", 0)
+        self.db.upsert_portfolio(
+            total_capital=new_total,
+            cash=new_cash,
+            invested=portfolio.get("invested", 0),
+            total_pnl=portfolio.get("total_pnl", 0),
+            daily_pnl=portfolio.get("daily_pnl", 0),
+            daily_pnl_pct=portfolio.get("daily_pnl_pct", 0),
+            mode=self.mode,
+        )
+        action = "입금" if amount >= 0 else "출금"
+        logger.info(
+            f"[가상{action}] {abs(amount):,.0f}원 | 현금→{new_cash:,.0f} | "
+            f"오늘 누적입출금={self._day_net_cash_flow:+,.0f}"
+        )
 
     def get_portfolio_state(self) -> dict:
         portfolio = self.db.get_portfolio(self.mode)
@@ -340,13 +395,20 @@ class PaperTradingEngine:
         initial = self.pt_cfg["initial_capital"]
         total_pnl = total_value - initial
 
+        # ── 일일 손익 계산 (입출금 보정 포함) ────────────────────────
+        # 공식: daily_pnl_pct = (현재총자산 - 시작자산 - 당일순입출금) / 시작자산
+        self._reset_daily_tracking(total_value)
+        day_start = self._day_start_capital if self._day_start_capital > 0 else total_value
+        daily_pnl = total_value - day_start - self._day_net_cash_flow
+        daily_pnl_pct = daily_pnl / day_start if day_start > 0 else 0.0
+
         self.db.upsert_portfolio(
             total_capital=total_value,
             cash=cash,
             invested=total_invested,
             total_pnl=total_pnl,
-            daily_pnl=0,
-            daily_pnl_pct=0,
+            daily_pnl=daily_pnl,
+            daily_pnl_pct=daily_pnl_pct,
             mode=self.mode,
         )
 
@@ -355,7 +417,11 @@ class PaperTradingEngine:
             "cash": cash,
             "invested": total_invested,
             "total_pnl": total_pnl,
-            "total_pnl_pct": total_pnl / initial,
+            "total_pnl_pct": total_pnl / initial if initial > 0 else 0.0,
+            "daily_pnl": daily_pnl,
+            "daily_pnl_pct": daily_pnl_pct,
+            "day_start_capital": day_start,
+            "day_net_cash_flow": self._day_net_cash_flow,
             "positions": self.db.get_positions(self.mode),
         }
 

@@ -393,29 +393,106 @@ db: QuantDatabase = st.session_state.db
 
 
 # ═══════════════════════════════════════════════════════════
-# 로그인 페이지 (이메일 / 비밀번호)
+# 로그인 페이지 (원본 디자인 + 이메일/비밀번호 폼)
 # ═══════════════════════════════════════════════════════════
 def _show_login_page():
-    """이메일 + 비밀번호 로그인 / 회원가입 페이지"""
+    """랜딩 페이지 — Alpha Quant 브랜드 (이메일/비밀번호 전환)"""
+    import streamlit.components.v1 as _components
+
+    _is_first = db.count_users() == 0
+
     st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:#060b14!important;}
-    [data-testid="stMainBlockContainer"]{padding-top:0!important;}
-    </style>""", unsafe_allow_html=True)
+      [data-testid="stAppViewContainer"],
+      [data-testid="stAppViewContainer"] > .main,
+      [data-testid="stMainBlockContainer"],
+      .main .block-container,
+      div[data-testid="column"],
+      div[data-testid="stHorizontalBlock"],
+      div[data-testid="stVerticalBlock"],
+      div[data-testid="stVerticalBlockBorderWrapper"] {
+        background:#0a0f1e !important;
+      }
+      [data-testid="stHeader"] { background:#0a0f1e !important; }
+      .block-container { padding-top:0 !important; padding-bottom:0 !important; max-width:100% !important; }
+      iframe { border:none !important; display:block !important; }
+      [data-testid="stIframe"] { line-height:0; margin:0 !important; padding:0 !important; }
+      div[data-testid="element-container"]:has(iframe) { margin:0 !important; padding:0 !important; line-height:0; }
+      div[data-testid="stVerticalBlock"] > div { gap:0 !important; }
+      /* 폼 카드 스타일 */
+      div[data-testid="stForm"] {
+        background:rgba(13,26,58,0.85) !important;
+        border:1px solid rgba(59,130,246,0.25) !important;
+        border-radius:16px !important;
+        padding:1.25rem !important;
+        backdrop-filter:blur(12px);
+      }
+      div[data-testid="stTabs"] button {
+        color:#94a3b8 !important;
+        font-weight:600 !important;
+      }
+    </style>
 
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#060b14 0%,#0d1a3a 100%);
-                padding:3rem 1rem 2rem;text-align:center;">
-      <div style="font-size:2.8rem;font-weight:900;color:#3b82f6;
-                  letter-spacing:-0.05em;line-height:1;">⚡ Alpha Quant</div>
-      <div style="font-size:1rem;color:#475569;margin-top:0.5rem;">
-        AI 퀀트 투자 자동 운용 플랫폼
+    <div style="background:linear-gradient(160deg,#0a0f1e 0%,#0d1a3a 60%,#0a2040 100%);
+                padding:5rem 2rem 4rem;text-align:center;position:relative;overflow:hidden;">
+
+      <div style="position:absolute;top:-80px;left:50%;transform:translateX(-50%);
+                  width:600px;height:400px;border-radius:50%;
+                  background:radial-gradient(ellipse,rgba(59,130,246,0.18) 0%,transparent 70%);
+                  pointer-events:none;"></div>
+
+      <div style="display:inline-flex;align-items:center;gap:0.5rem;
+                  background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.35);
+                  border-radius:100px;padding:0.35rem 1rem;margin-bottom:1.75rem;">
+        <div style="width:7px;height:7px;border-radius:50%;background:#3b82f6;
+                    box-shadow:0 0 8px #3b82f6;"></div>
+        <span style="font-size:0.75rem;font-weight:600;color:#93c5fd;letter-spacing:0.08em;">
+          AI · KOSPI 30 · 4중 리스크 방어
+        </span>
       </div>
-    </div>""", unsafe_allow_html=True)
 
-    _c_l, _c_m, _c_r = st.columns([1, 2, 1])
-    with _c_m:
-        _is_first = db.count_users() == 0
+      <div style="font-size:clamp(2rem,5vw,3.5rem);font-weight:900;color:#ffffff;
+                  letter-spacing:-0.04em;line-height:1.08;margin-bottom:1.25rem;">
+        감정을 배제한<br>
+        <span style="background:linear-gradient(90deg,#60a5fa,#a78bfa);
+                     -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
+          완벽한 데이터 투자
+        </span>
+      </div>
+
+      <div style="font-size:1.125rem;color:#94a3b8;max-width:540px;margin:0 auto 2.5rem;
+                  line-height:1.7;font-weight:400;">
+        수면제 대신 AI를 켜두세요.<br>
+        <strong style="color:#cbd5e1;">1명의 비서실장</strong>과
+        <strong style="color:#cbd5e1;">4명의 전문 에이전트</strong>가
+        24시간 당신의 자산을 지키고 불려드립니다.
+      </div>
+
+      <div style="display:flex;justify-content:center;gap:2rem;flex-wrap:wrap;">
+        <div style="text-align:center;">
+          <div style="font-size:1.75rem;font-weight:800;color:#60a5fa;">4중</div>
+          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">리스크 방어막</div>
+        </div>
+        <div style="width:1px;background:#1e293b;"></div>
+        <div style="text-align:center;">
+          <div style="font-size:1.75rem;font-weight:800;color:#a78bfa;">5명</div>
+          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">AI 비서진</div>
+        </div>
+        <div style="width:1px;background:#1e293b;"></div>
+        <div style="text-align:center;">
+          <div style="font-size:1.75rem;font-weight:800;color:#34d399;">100%</div>
+          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">결정론적 판단</div>
+        </div>
+      </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── 로그인 / 회원가입 폼 (Hero 바로 아래) ──────────────────────
+    _lf_l, _lf_m, _lf_r = st.columns([1, 2, 1])
+    with _lf_m:
+        if _is_first:
+            st.success("🎉 첫 번째 가입 — 자동으로 관리자가 됩니다.")
         _tab_login, _tab_reg = st.tabs(["🔑 로그인", "📝 회원가입"])
 
         with _tab_login:
@@ -441,9 +518,7 @@ def _show_login_page():
                         st.rerun()
 
         with _tab_reg:
-            if _is_first:
-                st.success("🎉 첫 번째 가입 — 자동으로 관리자가 됩니다.")
-            else:
+            if not _is_first:
                 st.info("📋 가입 후 관리자 승인을 받으면 서비스를 이용할 수 있습니다.")
             with st.form("register_form"):
                 _rg_name  = st.text_input("이름", placeholder="홍길동")
@@ -472,14 +547,224 @@ def _show_login_page():
                     except ValueError as _ve:
                         st.error(str(_ve))
 
+    # ══════════════════════════════════════════════════════════
+    # SECTION 2 — Pain Point
+    # ══════════════════════════════════════════════════════════
+    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#0d1117;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       padding:4rem 2rem;color:#f1f5f9;}
+  .wrap{max-width:800px;margin:0 auto;text-align:center;}
+  .label{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+         color:#3b82f6;margin-bottom:1rem;}
+  .title{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
+         letter-spacing:-.03em;line-height:1.15;margin-bottom:1rem;}
+  .sub{font-size:.9rem;color:#64748b;margin-bottom:2.5rem;line-height:1.7;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;text-align:left;}
+  .card-bad{background:#1a0a0a;border:1px solid #3d1515;border-radius:16px;padding:1.75rem;}
+  .card-good{background:#020f0f;border:1px solid #0d3d3d;border-radius:16px;padding:1.75rem;}
+  .card-title{font-size:.9rem;font-weight:700;margin-bottom:1.25rem;}
+  .row{display:flex;gap:.6rem;align-items:flex-start;margin-bottom:.75rem;}
+  .mark{font-size:.8rem;font-weight:700;margin-top:1px;flex-shrink:0;}
+  .txt{color:#94a3b8;font-size:.875rem;line-height:1.5;}
+</style></head><body>
+<div class="wrap">
+  <div class="label">WHY ALPHA QUANT</div>
+  <div class="title">아직도 차트 앞에서<br>밤을 새우고 계신가요?</div>
+  <div class="sub">시세에 휘둘리고, 손실에 감정이 흔들리는 '틀리는 법'에서 벗어나세요.</div>
+  <div class="grid">
+    <div class="card-bad">
+      <div class="card-title" style="color:#f87171;">개인 투자자의 하루</div>
+      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">공포에 팔고 탐욕에 사는 뇌동매매</span></div>
+      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">밤새 차트 확인 → 수면 부족 → 판단력 저하</span></div>
+      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">손절 타이밍 놓쳐 손실 눈덩이처럼 불어남</span></div>
+      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">자만 편향 — 몇 번의 성공에 과도한 베팅</span></div>
+    </div>
+    <div class="card-good">
+      <div class="card-title" style="color:#34d399;">Alpha Quant의 하루</div>
+      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">VIX · 이평선 · MACD 3중 분석으로 냉철한 레짐 판단</span></div>
+      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">목표 수익 달성 시 즉시 익절 후 당일 거래 종료</span></div>
+      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">스탑로스 자동 실행 — 감정 없이 룰대로만</span></div>
+      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">이메일로 아침마다 오늘의 전략 브리핑 수신</span></div>
+    </div>
+  </div>
+</div>
+</body></html>""", height=500, scrolling=False)
+
+    # ══════════════════════════════════════════════════════════
+    # SECTION 3 — AI 비서진 5명 소개
+    # ══════════════════════════════════════════════════════════
+    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#0a0f1e;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       padding:4rem 2rem;color:#f1f5f9;}
+  .lbl{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+       color:#a78bfa;margin-bottom:1rem;text-align:center;}
+  .ttl{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
+       letter-spacing:-.03em;text-align:center;}
+  .sbttl{font-size:.875rem;color:#475569;margin-top:.75rem;text-align:center;margin-bottom:2.5rem;}
+  .card{position:relative;overflow:hidden;cursor:pointer;border-radius:16px;padding:1.5rem;margin-bottom:1rem;
+    background:rgba(148,163,184,0.06);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,0.08);
+    box-shadow:0 4px 24px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.06);
+    transition:transform .2s ease,box-shadow .2s ease;}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.45),inset 0 1px 0 rgba(255,255,255,0.08);}
+  .popup{position:absolute;left:0;right:0;bottom:0;padding:1.25rem 1.5rem;
+    background:rgba(10,12,24,0.88);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border-top:1px solid rgba(255,255,255,0.09);border-radius:0 0 16px 16px;
+    transform:translateY(100%);opacity:0;transition:transform .25s cubic-bezier(.22,.68,0,1.2),opacity .2s ease;pointer-events:none;}
+  .card:hover .popup{transform:translateY(0);opacity:1;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+  .tag{display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+       padding:.18rem .55rem;border-radius:4px;margin-bottom:.6rem;border:1px solid currentColor;}
+  .nm{font-size:1rem;font-weight:800;color:#e2e8f0;margin-bottom:.2rem;}
+  .sub{font-size:.73rem;font-weight:500;margin-bottom:.45rem;}
+  .hint{font-size:.72rem;color:#475569;line-height:1.5;}
+  .desc{font-size:.78rem;line-height:1.75;}
+  .bar{position:absolute;top:0;left:0;right:0;height:3px;border-radius:16px 16px 0 0;}
+</style></head><body>
+<div class="lbl">THE AI TEAM</div>
+<div class="ttl">1명의 비서실장 + 4명의 전문 에이전트</div>
+<div class="sbttl">카드에 마우스를 올리면 상세 전략을 확인할 수 있습니다</div>
+<div class="card" style="border-color:rgba(167,139,250,.18);">
+  <div class="bar" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
+  <div class="tag" style="color:#a78bfa;border-color:rgba(167,139,250,.3);">CHIEF OF STAFF</div>
+  <div class="nm">통합 비서실장</div>
+  <div class="sub" style="color:#a78bfa;">시장 레짐 분석 · 예산 배분 총괄</div>
+  <div class="hint">공격 · 방어 · 전시 — 3단계 레짐별 자동 전환</div>
+  <div class="popup"><div class="desc" style="color:#c4b5fd;">
+    <b style="color:#e2e8f0;">VIX ≥ 30</b>이면 분석 무관하게 전시 레짐 강제 선포.
+    <b style="color:#e2e8f0;">이동평균 정배열 + MACD 동조</b> 시 공격 모드 전환.
+    레짐별로 4개 에이전트 예산 비율을 자동 재조정합니다.
+  </div></div>
+</div>
+<div class="grid2">
+  <div class="card" style="border-color:rgba(96,165,250,.15);">
+    <div class="bar" style="background:linear-gradient(90deg,#1d4ed8,#60a5fa);"></div>
+    <div class="tag" style="color:#60a5fa;border-color:rgba(96,165,250,.28);">VALUE FINDER</div>
+    <div class="nm">밸류파인더</div>
+    <div class="sub" style="color:#60a5fa;">가치 함정 판독기</div>
+    <div class="hint">마법공식 → 소르티노 &lt; 0.2 영구 배제 → F-스코어</div>
+    <div class="popup"><div class="desc" style="color:#93c5fd;">
+      ROA+PER 마법공식으로 후보 선정 후, <b style="color:#e2e8f0;">소르티노 지수 &lt; 0.2</b>인 종목은 영구 블랙리스트.
+      피오트로스키 F-스코어로 재무 부실 기업을 최종 차단합니다.
+    </div></div>
+  </div>
+  <div class="card" style="border-color:rgba(52,211,153,.15);">
+    <div class="bar" style="background:linear-gradient(90deg,#065f46,#34d399);"></div>
+    <div class="tag" style="color:#34d399;border-color:rgba(52,211,153,.28);">TREND RIDER</div>
+    <div class="nm">트렌드라이더</div>
+    <div class="sub" style="color:#34d399;">추세 파도타기</div>
+    <div class="hint">골든/데드크로스 + MACD 모멘텀 동시 확인</div>
+    <div class="popup"><div class="desc" style="color:#6ee7b7;">
+      <b style="color:#e2e8f0;">골든크로스(5/20일선)</b>와 <b style="color:#e2e8f0;">MACD 상향 돌파</b>가
+      동시에 발생할 때만 진입하여 오신호를 최소화합니다.
+    </div></div>
+  </div>
+  <div class="card" style="border-color:rgba(192,132,252,.15);">
+    <div class="bar" style="background:linear-gradient(90deg,#6d28d9,#c084fc);"></div>
+    <div class="tag" style="color:#c084fc;border-color:rgba(192,132,252,.28);">SWING MASTER</div>
+    <div class="nm">스윙마스터</div>
+    <div class="sub" style="color:#c084fc;">박스권 방어자</div>
+    <div class="hint">볼린저 하단 돌파 + RSI 과매도 핀포인트</div>
+    <div class="popup"><div class="desc" style="color:#d8b4fe;">
+      볼린저 밴드 하단 이탈 + RSI ≤ 30, <b style="color:#e2e8f0;">두 조건이 동시에</b> 충족될 때만 역추세 진입.
+      횡보장과 박스권에서 꾸준한 수익을 창출합니다.
+    </div></div>
+  </div>
+  <div class="card" style="border-color:rgba(248,113,113,.15);">
+    <div class="bar" style="background:linear-gradient(90deg,#991b1b,#f87171);"></div>
+    <div class="tag" style="color:#f87171;border-color:rgba(248,113,113,.28);">MICRO SNIPER</div>
+    <div class="nm">마이크로스나이퍼</div>
+    <div class="sub" style="color:#f87171;">1분봉 초단타 스캘핑</div>
+    <div class="hint">정액 독립 운용 · 조기 퇴근 · 할루시네이션 방지</div>
+    <div class="popup"><div class="desc" style="color:#fca5a5;">
+      시장 레짐과 무관하게 <b style="color:#e2e8f0;">정액(500만 원) 독립 예산</b>으로 운용.
+      ADX + BB%B + RSI + 스토캐스틱 4중 확인 후 진입.
+      목표 달성 시 <b style="color:#e2e8f0;">즉시 전량 익절 + 당일 퇴근</b>.
+    </div></div>
+  </div>
+</div>
+</body></html>""", height=980, scrolling=False)
+
+    # ══════════════════════════════════════════════════════════
+    # SECTION 4 — 4중 보안 체계
+    # ══════════════════════════════════════════════════════════
+    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#060b14;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       padding:4rem 2rem;color:#f1f5f9;}
+  .wrap{max-width:680px;margin:0 auto;}
+  .lbl{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+       color:#ef4444;margin-bottom:.75rem;text-align:center;}
+  .ttl{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
+       letter-spacing:-.03em;text-align:center;}
+  .sub{font-size:.875rem;color:#475569;margin-top:.75rem;margin-bottom:2.5rem;text-align:center;}
+  .row{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.25rem;}
+  .num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+       justify-content:center;font-weight:800;font-size:.875rem;flex-shrink:0;}
+  .nm{font-weight:700;color:#f1f5f9;margin-bottom:.25rem;}
+  .desc{font-size:.875rem;color:#64748b;line-height:1.6;}
+</style></head><body>
+<div class="wrap">
+  <div class="lbl">IRONCLAD DEFENSE</div>
+  <div class="ttl">4중 철통 방어 시스템</div>
+  <div class="sub">돈이 걸린 문제입니다. 단 1원도 허투루 잃지 않습니다.</div>
+  <div class="row">
+    <div class="num" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);">1</div>
+    <div><div class="nm">VIX 서킷브레이커</div>
+    <div class="desc">공포지수(VIX)가 30을 돌파하면 분석 결과와 무관하게 <b style="color:#94a3b8;">전시 레짐 강제 선포</b>. 모든 신규 진입을 차단하고 관망 태세로 전환합니다.</div></div>
+  </div>
+  <div class="row">
+    <div class="num" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);">2</div>
+    <div><div class="nm">일일 MDD 한도</div>
+    <div class="desc">하루 최대 손실 한도(-5%) 도달 시 <b style="color:#94a3b8;">모든 포지션 즉시 청산</b>하고 당일 거래를 완전히 종료합니다.</div></div>
+  </div>
+  <div class="row">
+    <div class="num" style="background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3);">3</div>
+    <div><div class="nm">물리적 킬스위치</div>
+    <div class="desc">대시보드 내 <b style="color:#94a3b8;">Kill Switch 버튼 1회 클릭</b>으로 모든 자동 거래가 즉시 중단됩니다.</div></div>
+  </div>
+  <div class="row">
+    <div class="num" style="background:rgba(20,184,166,.15);color:#2dd4bf;border:1px solid rgba(20,184,166,.3);">4</div>
+    <div><div class="nm">개별 종목 스탑로스 / 익절</div>
+    <div class="desc">종목별 손절(-3%)과 익절(+5%) 라인을 <b style="color:#94a3b8;">사전 하드코딩</b>하여 어떤 상황에서도 기계적으로 실행. 인간의 감정 개입 불가.</div></div>
+  </div>
+</div>
+</body></html>""", height=580, scrolling=False)
+
+    # ══════════════════════════════════════════════════════════
+    # SECTION 5 — Bottom CTA
+    # ══════════════════════════════════════════════════════════
     st.markdown("""
-    <div style="background:#060b14;padding:1.5rem;text-align:center;
-                margin-top:3rem;border-top:1px solid #0f172a;">
+    <div style="background:linear-gradient(160deg,#0a0f1e,#0d1a3a);
+                padding:5rem 2rem 4rem;text-align:center;border-top:1px solid #1e293b;">
+      <div style="font-size:clamp(1.25rem,3vw,1.875rem);font-weight:800;color:#f1f5f9;
+                  letter-spacing:-0.03em;margin-bottom:0.75rem;">
+        더 이상 시장의 파도에<br>감정을 낭비하지 마십시오.
+      </div>
+      <div style="font-size:1rem;color:#475569;">
+        위 로그인 또는 회원가입으로 지금 바로 시작하세요.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Footer
+    st.markdown("""
+    <div style="background:#060b14;padding:2rem;text-align:center;border-top:1px solid #0f172a;">
       <div style="font-size:0.75rem;color:#334155;line-height:1.8;">
         Alpha Quant · AI 퀀트 자동 운용 플랫폼 · 모의투자 전용 시스템<br>
-        본 서비스는 투자 권유가 아닌 알고리즘 연구 목적의 모의 시스템입니다.
+        본 서비스는 투자 권유가 아닌 알고리즘 연구 목적의 모의 시스템입니다.<br>
+        비밀번호는 PBKDF2-SHA256으로 암호화 저장되며 외부에 공유되지 않습니다.
       </div>
-    </div>""", unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # 로그인 체크 — 미인증 시 로그인 페이지 표시 후 중단

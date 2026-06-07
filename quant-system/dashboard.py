@@ -467,25 +467,25 @@ def _show_login_page():
         st.info(f"**Redirect URI 등록 필수:**\n```\n{_app_url}\n```")
 
     _first_user_note = f'<div style="font-size:0.7rem;color:#64748b;margin-top:0.75rem;">첫 번째 로그인 사용자는 자동으로 관리자로 지정됩니다.</div>' if db.count_users() == 0 else ''
-    _kakao_btn_html = f"""
-      <div style="margin-top:2.5rem;display:flex;flex-direction:column;align-items:center;gap:0.5rem;">
-        <a href="{_auth_url}" target="_top"
+    _kakao_btn_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:transparent;">
+      <div style="margin-top:1rem;display:flex;flex-direction:column;align-items:center;gap:0.5rem;">
+        <button onclick="window.top.location.href='{_auth_url}'"
            style="display:inline-flex;align-items:center;gap:10px;
                   background:#FEE500;color:#000;font-size:16px;font-weight:800;
                   padding:15px 40px;border-radius:12px;cursor:pointer;
                   box-shadow:0 4px 20px rgba(254,229,0,0.4);
                   transition:transform .15s,box-shadow .15s;letter-spacing:-0.01em;
-                  text-decoration:none;">
+                  border:none;font-family:-apple-system,sans-serif;">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="#000">
             <path d="M12 3C6.477 3 2 6.582 2 11c0 2.818 1.63 5.3 4.1 6.863l-.9 3.337
                      a.5.5 0 0 0 .72.55l3.9-2.57A11.6 11.6 0 0 0 12 19c5.523 0
                      10-3.582 10-8s-4.477-8-10-8z"/>
           </svg>
           카카오 계정으로 무료 시작하기
-        </a>
+        </button>
         {_first_user_note}
       </div>
-    """ if _kakao_ok else ""
+    </body></html>""" if _kakao_ok else ""
 
     st.markdown(f"""
     <style>

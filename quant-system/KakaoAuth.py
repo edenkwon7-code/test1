@@ -12,7 +12,7 @@ KAKAO_REST_API_KEY:    str = os.environ.get("KAKAO_REST_API_KEY", "")
 KAKAO_CLIENT_SECRET:   str = os.environ.get("KAKAO_CLIENT_SECRET", "")
 
 _REPLIT_DOMAIN = os.environ.get("REPLIT_DOMAINS", "localhost:5000").split(",")[0].strip()
-REDIRECT_URI   = f"https://{_REPLIT_DOMAIN}/"
+REDIRECT_URI   = os.environ.get("REDIRECT_URI", f"https://{_REPLIT_DOMAIN}/")
 
 _AUTH_URL  = "https://kauth.kakao.com/oauth/authorize"
 _TOKEN_URL = "https://kauth.kakao.com/oauth/token"

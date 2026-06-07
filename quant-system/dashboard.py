@@ -72,6 +72,35 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── PWA 메타 태그 + 서비스 워커 등록 ─────────────────────────
+st.markdown(
+    """
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0f1117">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Alpha Quant">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <script>
+    (function() {
+      if (!('serviceWorker' in navigator)) return;
+      window.addEventListener('load', function() {
+        // scope='/' 우선 시도 → 실패 시 /static/ scope로 폴백
+        navigator.serviceWorker.register('/static/service-worker.js', {scope: '/'})
+          .then(function(r){ console.log('[AlphaQuant PWA] SW scope:', r.scope); })
+          .catch(function() {
+            navigator.serviceWorker.register('/static/service-worker.js')
+              .then(function(r){ console.log('[AlphaQuant PWA] SW (limited scope):', r.scope); })
+              .catch(function(e){ console.warn('[AlphaQuant PWA] SW failed:', e); });
+          });
+      });
+    })();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ── Design System CSS — Alpha Quant Light ───────────────────
 st.markdown(
     """
@@ -850,6 +879,18 @@ def regime_class(regime: str) -> str:
 
 # ── 사이드바 ─────────────────────────────────────────────────
 with st.sidebar:
+    # ── 모바일 라이트 뷰 토글 ─────────────────────────────────
+    _mobile_lite = st.toggle(
+        "📱 모바일 라이트 뷰",
+        value=st.session_state.get("mobile_lite", False),
+        help="켜면 핵심 지표만 표시합니다 — 스마트폰 외부 접속 최적화",
+        key="toggle_mobile_lite",
+    )
+    st.session_state["mobile_lite"] = _mobile_lite
+    if _mobile_lite:
+        st.caption("⚡ 라이트 모드 활성 — 상세 기능 숨김")
+    st.markdown("---")
+
     # 로그인 사용자 정보 헤더
     _risk_label = {
         "conservative": "안정형",
@@ -1379,6 +1420,193 @@ if _u.get("is_admin"):
     _tab_list.append("👥 사용자 관리")
 
 tabs = st.tabs(_tab_list)
+
+
+# ═══════════════════════════════════════════════════════════
+# 📱 모바일 라이트 뷰 (토글 On 시 이 블록만 렌더링 후 st.stop())
+# ═══════════════════════════════════════════════════════════
+if st.session_state.get("mobile_lite", False):
+    _lv_mode  = QuantDatabase.user_mode(_u["id"])
+    _lv_port  = db.get_portfolio(_lv_mode)
+    _lv_init  = config["paper_trading"]["initial_capital"]
+    _lv_total = _lv_port.get("total_capital", _lv_init)
+    _lv_pnl   = _lv_port.get("total_pnl", 0)
+    _lv_pnl_pct = _lv_pnl / _lv_init if _lv_init > 0 else 0
+    _lv_cash  = _lv_port.get("cash", _lv_init)
+    _lv_inv   = _lv_port.get("invested", 0)
+
+    # ── 헤더 ────────────────────────────────────────────────
+    st.markdown(
+        "<h2 style='margin-bottom:0.2rem;'>📱 Alpha Quant <span style='font-size:0.9rem;"
+        "font-weight:400;color:#888;'>모바일 라이트</span></h2>",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')} 기준 · 라이트 뷰 활성")
+
+    # ══════════════════════════════════════════════════════════
+    # [1순위] 핵심 성과 지표 + 킬스위치
+    # ══════════════════════════════════════════════════════════
+    _lvc1, _lvc2 = st.columns(2)
+    with _lvc1:
+        st.metric(
+            "💰 현재 총 자산",
+            f"{_lv_total:,.0f}원",
+            delta=f"{_lv_pnl:+,.0f}원",
+        )
+    with _lvc2:
+        st.metric(
+            "📈 누적 수익률",
+            f"{_lv_pnl_pct:+.2%}",
+            delta_color="normal",
+        )
+
+    # 당일 수익
+    try:
+        _lv_today = datetime.now().strftime("%Y-%m-%d")
+        _lv_perf_hist = db.get_performance_history(_lv_mode, 2)
+        _lv_today_row = next((r for r in _lv_perf_hist if str(r.get("date",""))[:10] == _lv_today), None)
+        if _lv_today_row:
+            _lv_day_pnl = float(_lv_today_row.get("daily_pnl", 0) or 0)
+            _lv_day_ret = float(_lv_today_row.get("daily_return", 0) or 0)
+            st.metric("📅 당일 수익금", f"{_lv_day_pnl:+,.0f}원",
+                      delta=f"{_lv_day_ret:+.2%}", delta_color="normal")
+    except Exception:
+        pass
+
+    # 킬스위치
+    _lv_ks = db.get_kill_switch()
+    _lv_ks_on = _lv_ks.get("emergency_stop", False)
+    if not _lv_ks_on:
+        if st.button(
+            "🔴 시스템 강제종료 및 전량 청산",
+            use_container_width=True,
+            type="primary",
+            key="lv_killswitch_btn",
+        ):
+            db.set_kill_switch(True, "모바일 라이트 뷰 수동 발동")
+            db.log_system_event("CRITICAL", "MobileLite", "킬스위치 수동 발동 — 모바일")
+            st.session_state.kill_switch_active = True
+            if _u.get("kakao_notify") and _u.get("kakao_access_token"):
+                try:
+                    KakaoAuth.send_kill_switch_kakao(
+                        _u["kakao_access_token"], reason="모바일 라이트 뷰 수동 발동"
+                    )
+                except Exception:
+                    pass
+            st.rerun()
+    else:
+        _lv_ks_reason = _lv_ks.get("kill_switch_reason", "")
+        st.error(f"🔴 킬스위치 발동 중 — 모든 거래 정지\n사유: {_lv_ks_reason}")
+        if st.button("✅ 킬스위치 해제", use_container_width=True, key="lv_ks_off_btn"):
+            db.set_kill_switch(False, "모바일 수동 해제")
+            db.log_system_event("WARNING", "MobileLite", "킬스위치 수동 해제 — 모바일")
+            st.rerun()
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════
+    # [2순위] 비서실장 핵심 요약 브리핑
+    # ══════════════════════════════════════════════════════════
+    try:
+        _lv_rh = db.get_regime_history(limit=1)
+        _lv_rr = _lv_rh[0] if _lv_rh else {}
+        _lv_regime_name = _lv_rr.get("regime", "방어")
+        _lv_vix   = float(_lv_rr.get("vix", 0) or 0)
+        _lv_conf  = float(_lv_rr.get("confidence", 0) or 0)
+        _lv_ma    = _lv_rr.get("ma_alignment", "UNKNOWN")
+        _lv_macd  = _lv_rr.get("macd_signal", "UNKNOWN")
+    except Exception:
+        _lv_regime_name, _lv_vix, _lv_conf, _lv_ma, _lv_macd = "방어", 0.0, 0.0, "UNKNOWN", "UNKNOWN"
+
+    _lv_regime_icon = {"공격": "🟢", "방어": "🟡", "전시": "🔴"}.get(_lv_regime_name, "⚪")
+    _lv_util = _lv_inv / _lv_total if _lv_total > 0 else 0
+
+    st.markdown(
+        f"**{_lv_regime_icon} {_lv_regime_name} 레짐** "
+        f"· VIX {_lv_vix:.1f} · 신뢰도 {_lv_conf:.0%}"
+    )
+    st.progress(
+        min(_lv_util, 1.0),
+        text=f"예산 가동률 {_lv_util:.1%} — 투자 {_lv_inv:,.0f}원 / 총 {_lv_total:,.0f}원",
+    )
+
+    # 자연어 브리핑 (1~2문장 발췌)
+    try:
+        from ChiefOfStaff import get_regime_memo as _lv_grm
+        _lv_full, _ = _lv_grm(
+            vix=_lv_vix, ma_alignment=_lv_ma, macd_signal=_lv_macd,
+            regime=_lv_regime_name, confidence=_lv_conf,
+        )
+        # "대표님, " 제거 후 첫 번째 단락만
+        _lv_brief = _lv_full.replace("대표님, ", "").split("\n\n")[0]
+        # 너무 길면 첫 두 문장으로 자르기
+        _lv_sentences = _lv_brief.split(". ")
+        _lv_brief_short = ". ".join(_lv_sentences[:2]).strip()
+        if not _lv_brief_short.endswith("."):
+            _lv_brief_short += "."
+    except Exception:
+        _lv_brief_short = f"현재 {_lv_regime_name} 레짐 — VIX {_lv_vix:.1f} 기준 운용 중"
+
+    if _lv_regime_name == "전시":
+        st.error(f"🚨 **비서실장 요약:** {_lv_brief_short}")
+    elif _lv_regime_name == "방어":
+        st.warning(f"🟡 **비서실장 요약:** {_lv_brief_short}")
+    else:
+        st.info(f"🟢 **비서실장 요약:** {_lv_brief_short}")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════
+    # [3순위] 에이전트 가동 현황 + 미니 포트폴리오
+    # ══════════════════════════════════════════════════════════
+    st.markdown("**🤖 에이전트 가동 현황**")
+    _lv_ag_defs = [
+        ("value_finder",  "💎 밸류"),
+        ("trend_rider",   "📈 트렌드"),
+        ("swing_master",  "🔄 스윙"),
+        ("micro_sniper",  "🎯 스나이퍼"),
+    ]
+    _lv_ag_cols = st.columns(4)
+    for _idx, (_ak, _aname) in enumerate(_lv_ag_defs):
+        with _lv_ag_cols[_idx]:
+            try:
+                _lv_enabled = config["agents"][_ak].get("enabled", True)
+            except Exception:
+                _lv_enabled = False
+            _lv_dot = "🟢" if _lv_enabled else "🔴"
+            _lv_label = "Active" if _lv_enabled else "Sleep"
+            st.markdown(
+                f"<div style='text-align:center;font-size:0.72rem;line-height:1.6;'>"
+                f"{_lv_dot}<br><b>{_aname}</b><br>"
+                f"<span style='color:#888;font-size:0.65rem;'>{_lv_label}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("**📋 보유 종목 요약**")
+    _lv_positions = db.get_positions(_lv_mode)
+    if _lv_positions:
+        _lv_df = pd.DataFrame(_lv_positions)
+        _lv_df["종목"] = _lv_df["ticker"].apply(ticker_label)
+        # 핵심 컬럼만 표시
+        _lv_show = ["종목"]
+        for _c in ["agent_name", "quantity", "unrealized_pnl_pct"]:
+            if _c in _lv_df.columns:
+                _lv_show.append(_c)
+        _lv_mini = _lv_df[_lv_show].copy()
+        if "unrealized_pnl_pct" in _lv_mini.columns:
+            _lv_mini["unrealized_pnl_pct"] = _lv_mini["unrealized_pnl_pct"].apply(
+                lambda x: f"{x:+.2%}"
+            )
+        _lv_mini = _lv_mini.rename(columns={
+            "agent_name": "에이전트", "quantity": "수량", "unrealized_pnl_pct": "수익률"
+        })
+        st.dataframe(_lv_mini, use_container_width=True, hide_index=True)
+    else:
+        st.info("현재 보유 포지션이 없습니다.")
+
+    st.caption("💡 풀 대시보드 보려면 사이드바 '📱 모바일 라이트 뷰' 토글을 해제하세요.")
+    st.stop()   # ← 이 아래의 탭·차트·설정 등 모든 무거운 콘텐츠 렌더링 생략
 
 
 # ═══════════════════════════════════════════════════════════

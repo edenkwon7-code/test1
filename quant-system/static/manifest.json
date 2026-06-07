@@ -1,0 +1,36 @@
+{
+  "name": "Alpha Quant",
+  "short_name": "AlphaQuant",
+  "description": "AI 퀀트 투자 운용 시스템 — 비서실장 엔진 기반 자동화 투자 플랫폼",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "lang": "ko-KR",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "모바일 라이트 뷰",
+      "short_name": "라이트",
+      "description": "핵심 성과 지표 빠른 확인",
+      "url": "/?mobile_lite=1"
+    }
+  ]
+}

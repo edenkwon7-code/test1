@@ -561,9 +561,11 @@ def _show_login_page():
         </div>
       </div>
 
-      {_kakao_btn_html}
     </div>
     """, unsafe_allow_html=True)
+
+    if _kakao_ok:
+        _components.html(_kakao_btn_html, height=120, scrolling=False)
 
     # ══════════════════════════════════════════════════════════
     # SECTION 2 — Pain Point

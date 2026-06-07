@@ -396,38 +396,22 @@ db: QuantDatabase = st.session_state.db
 # 로그인 페이지 (이메일/비밀번호 — iframe 없는 순수 st.markdown)
 # ═══════════════════════════════════════════════════════════
 def _show_login_page():
-    """랜딩 페이지 — iframe 없이 st.markdown 전용 (iframe 잔류 버그 방지)"""
+    """랜딩 페이지 — iframe 없이 st.markdown 전용, <style> 블록 없음 (CSS 호이스팅 방지)"""
 
     _is_first = db.count_users() == 0
 
-    # ── 전역 스타일 (로그인 페이지 전용 scope) ──────────────
-    st.markdown("""
-    <style>
-      [data-testid="stAppViewContainer"],
-      [data-testid="stAppViewContainer"] > .main,
-      [data-testid="stMainBlockContainer"],
-      .main .block-container {
-        background:#0a0f1e !important;
-      }
-      [data-testid="stHeader"] { background:#0a0f1e !important; }
-      .block-container {
-        padding-top:0 !important;
-        padding-bottom:0 !important;
-        max-width:100% !important;
-      }
-      /* 폼 카드 */
-      div[data-testid="stForm"] {
-        background:rgba(13,26,58,0.85) !important;
-        border:1px solid rgba(59,130,246,0.25) !important;
-        border-radius:16px !important;
-        padding:1.25rem !important;
-      }
-    </style>""", unsafe_allow_html=True)
+    # ──────────────────────────────────────────────────────────
+    # ⚠️  <style> 블록을 여기에 넣지 말 것.
+    #    st.markdown()의 <style>은 브라우저 <head>에 호이스팅되어
+    #    로그인 후 st.rerun()을 해도 제거되지 않음.
+    #    모든 스타일은 인라인 style 속성으로만 처리.
+    # ──────────────────────────────────────────────────────────
 
     # ── HERO ────────────────────────────────────────────────
     st.markdown("""
     <div style="background:linear-gradient(160deg,#0a0f1e 0%,#0d1a3a 60%,#0a2040 100%);
-                padding:5rem 2rem 3rem;text-align:center;position:relative;overflow:hidden;">
+                padding:5rem 2rem 3rem;text-align:center;position:relative;overflow:hidden;
+                margin:-1.5rem -2rem 0;">
       <div style="position:absolute;top:-80px;left:50%;transform:translateX(-50%);
                   width:600px;height:400px;border-radius:50%;
                   background:radial-gradient(ellipse,rgba(59,130,246,0.18) 0%,transparent 70%);
@@ -721,10 +705,6 @@ if not st.session_state.get("logged_in"):
 # 승인 대기 중인 사용자
 if st.session_state.get("pending_approval"):
     _pa_user = st.session_state.get("user", {})
-    st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:#060b14!important;}
-    </style>""", unsafe_allow_html=True)
     st.markdown("""
     <div style="max-width:480px;margin:5rem auto;text-align:center;padding:2.5rem;
                 background:#0d1a3a;border:1px solid #1e3a5f;border-radius:20px;">

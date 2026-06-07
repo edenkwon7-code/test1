@@ -9,6 +9,8 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+import hashlib
+import secrets as _pwd_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -568,6 +570,71 @@ class QuantDatabase:
         with self._get_conn() as conn:
             return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
+    # ── 이메일/비밀번호 인증 ──────────────────────────────────
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """PBKDF2-SHA256 해시 (salt:dk 형식)"""
+        salt = _pwd_secrets.token_hex(16)
+        dk   = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+        return f"{salt}:{dk.hex()}"
+
+    @staticmethod
+    def verify_password(password: str, stored_hash: str) -> bool:
+        try:
+            salt, dk_hex = stored_hash.split(":", 1)
+            dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+            return dk.hex() == dk_hex
+        except Exception:
+            return False
+
+    def register_user(self, email: str, password: str, name: str = "투자자") -> dict:
+        """신규 사용자 등록. 첫 번째 사용자는 자동으로 관리자 + 승인."""
+        is_first  = self.count_users() == 0
+        pwd_hash  = QuantDatabase.hash_password(password)
+        now       = datetime.now().isoformat()
+        email     = email.lower().strip()
+        with self._get_conn() as conn:
+            existing = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+            if existing:
+                raise ValueError("이미 가입된 이메일입니다.")
+            conn.execute(
+                """INSERT INTO users
+                   (email, password_hash, name, target_return, risk_profile,
+                    initial_capital, is_admin, emergency_stop, is_approved, created_at)
+                   VALUES (?, ?, ?, 0.15, 'balanced', 100000000, ?, 0, ?, ?)""",
+                (email, pwd_hash, name, 1 if is_first else 0, 1 if is_first else 0, now),
+            )
+            row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+            return dict(row)
+
+    def login_user(self, email: str, password: str) -> dict | None:
+        """이메일+비밀번호 검증. 성공 시 user dict, 실패 시 None."""
+        user = self.get_user_by_email(email)
+        if not user or not user.get("password_hash"):
+            return None
+        if not QuantDatabase.verify_password(password, user["password_hash"]):
+            return None
+        return user
+
+    def approve_user(self, user_id: int):
+        """사용자 승인"""
+        with self._get_conn() as conn:
+            conn.execute("UPDATE users SET is_approved=1 WHERE id=?", (user_id,))
+
+    def reject_user(self, user_id: int):
+        """사용자 거절(계정 삭제)"""
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+
+    def get_pending_users(self) -> list[dict]:
+        """승인 대기 중인 사용자 목록"""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, email, name, created_at FROM users WHERE is_approved=0 ORDER BY id"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     # ── 카카오 OAuth ──────────────────────────────────────────
 
     def migrate_trading_features(self):
@@ -622,6 +689,12 @@ class QuantDatabase:
                 conn.execute(
                     "ALTER TABLE users ADD COLUMN sniper_fixed_budget REAL DEFAULT 5000000"
                 )
+            if "is_approved" not in cols:
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 0"
+                )
+                # 기존 관리자(id=1)는 자동 승인
+                conn.execute("UPDATE users SET is_approved=1 WHERE is_admin=1")
         logger.info("[DB] migrate_trading_features 완료")
 
     def update_user_trading_settings(

@@ -389,540 +389,137 @@ config = st.session_state.config
 db: QuantDatabase = st.session_state.db
 
 
-# ═══════════════════════════════════════════════════════════
-# 카카오 OAuth Callback 처리 (로그인 체크보다 먼저 실행)
-# ═══════════════════════════════════════════════════════════
-_kk_code  = st.query_params.get("code")
-_kk_state = st.query_params.get("state")
-_kk_error = st.query_params.get("error")
 
-if _kk_error:
-    st.query_params.clear()
-    st.warning(f"카카오 로그인 취소됨: {st.query_params.get('error_description', _kk_error)}")
-
-elif _kk_code and not st.session_state.get("logged_in"):
-    _saved_state = st.session_state.get("kakao_oauth_state", "")
-    if _kk_state and _saved_state and _kk_state != _saved_state:
-        st.query_params.clear()
-        st.error("보안 오류: state 불일치. 다시 시도해주세요.")
-    else:
-        with st.spinner("카카오 로그인 처리 중..."):
-            _token_data = KakaoAuth.exchange_code(_kk_code)
-            if _token_data and _token_data.get("access_token"):
-                _at = _token_data["access_token"]
-                _kk_user = KakaoAuth.get_user_info(_at)
-                if _kk_user:
-                    try:
-                        db.migrate_kakao_columns()
-                        _new_user = db.upsert_kakao_user(
-                            kakao_id=_kk_user["kakao_id"],
-                            email=_kk_user["email"],
-                            name=_kk_user["name"],
-                            access_token=_at,
-                        )
-                        st.session_state["user"]      = _new_user
-                        st.session_state["logged_in"] = True
-                        st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_new_user["id"])
-                        st.session_state.pop("kakao_oauth_state", None)
-                        st.query_params.clear()
-                        st.rerun()
-                    except Exception as _ke:
-                        st.error(f"로그인 처리 오류: {_ke}")
-                else:
-                    st.error("카카오 사용자 정보를 가져올 수 없습니다.")
-            else:
-                _err_detail = _token_data.get("_error", "응답 없음") if _token_data else "응답 없음"
-                st.error(f"카카오 토큰 교환 실패: {_err_detail}")
-                st.warning(
-                    f"**Redirect URI 불일치 가능성**\n\n"
-                    f"아래 URI가 카카오 개발자 콘솔에 등록되어 있어야 합니다:\n\n"
-                    f"`{KakaoAuth.REDIRECT_URI}`\n\n"
-                    f"👉 [카카오 개발자 콘솔](https://developers.kakao.com) → 내 애플리케이션 → 카카오 로그인 → Redirect URI"
-                )
 
 
 # ═══════════════════════════════════════════════════════════
-# 로그인 페이지 (카카오 전용)
+# 로그인 페이지 (이메일 / 비밀번호)
 # ═══════════════════════════════════════════════════════════
 def _show_login_page():
-    """랜딩 페이지 — Alpha Quant 브랜드 (전면 리디자인)"""
-    import streamlit.components.v1 as _components
-
-    # ── 카카오 URL 준비 ────────────────────────────────────────
-    _kakao_ok = KakaoAuth.is_configured()
-    _app_url   = KakaoAuth.REDIRECT_URI
-    if _kakao_ok:
-        if "kakao_oauth_state" not in st.session_state:
-            st.session_state["kakao_oauth_state"] = KakaoAuth.make_state()
-        _auth_url = KakaoAuth.get_auth_url(st.session_state["kakao_oauth_state"])
-    else:
-        _auth_url = "#"
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 1 — Hero (딥 네이비 풀스크린)
-    # ══════════════════════════════════════════════════════════
-    # 버튼 오류 표시 (API 키 미설정 시)
-    if not _kakao_ok:
-        st.error("**KAKAO_REST_API_KEY** 환경변수가 설정되지 않았습니다.")
-        st.info(f"**Redirect URI 등록 필수:**\n```\n{_app_url}\n```")
-
-    _first_user_note = f'<div style="font-size:0.7rem;color:#64748b;margin-top:0.75rem;">첫 번째 로그인 사용자는 자동으로 관리자로 지정됩니다.</div>' if db.count_users() == 0 else ''
-    _kakao_btn_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:transparent;">
-      <div style="margin-top:1rem;display:flex;flex-direction:column;align-items:center;gap:0.5rem;">
-        <button onclick="window.open('{_auth_url}','_blank')"
-           style="display:inline-flex;align-items:center;gap:10px;
-                  background:#FEE500;color:#000;font-size:16px;font-weight:800;
-                  padding:15px 40px;border-radius:12px;cursor:pointer;
-                  box-shadow:0 4px 20px rgba(254,229,0,0.4);
-                  transition:transform .15s,box-shadow .15s;letter-spacing:-0.01em;
-                  border:none;font-family:-apple-system,sans-serif;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="#000">
-            <path d="M12 3C6.477 3 2 6.582 2 11c0 2.818 1.63 5.3 4.1 6.863l-.9 3.337
-                     a.5.5 0 0 0 .72.55l3.9-2.57A11.6 11.6 0 0 0 12 19c5.523 0
-                     10-3.582 10-8s-4.477-8-10-8z"/>
-          </svg>
-          카카오 계정으로 무료 시작하기
-        </button>
-        {_first_user_note}
-      </div>
-    </body></html>""" if _kakao_ok else ""
-
-    st.markdown(f"""
-    <style>
-      /* 랜딩 전용 — 모든 Streamlit 컨테이너 배경을 다크로 */
-      [data-testid="stAppViewContainer"],
-      [data-testid="stAppViewContainer"] > .main,
-      [data-testid="stMainBlockContainer"],
-      .main .block-container,
-      div[data-testid="column"],
-      div[data-testid="stHorizontalBlock"],
-      div[data-testid="stVerticalBlock"],
-      div[data-testid="stVerticalBlockBorderWrapper"] {{
-        background:#0a0f1e !important;
-      }}
-      [data-testid="stHeader"] {{ background:#0a0f1e !important; }}
-      .block-container {{ padding-top:0 !important; padding-bottom:0 !important; max-width:100% !important; }}
-      iframe {{ border:none !important; display:block !important; }}
-      [data-testid="stIframe"] {{ line-height:0; margin:0 !important; padding:0 !important; }}
-      div[data-testid="element-container"]:has(iframe) {{ margin:0 !important; padding:0 !important; line-height:0; }}
-      /* 컬럼/블록 사이 여백 제거 */
-      div[data-testid="stVerticalBlock"] > div {{ gap:0 !important; }}
-    </style>
-
-    <div style="background:linear-gradient(160deg,#0a0f1e 0%,#0d1a3a 60%,#0a2040 100%);
-                padding:5rem 2rem 4rem;text-align:center;position:relative;overflow:hidden;">
-
-      <div style="position:absolute;top:-80px;left:50%;transform:translateX(-50%);
-                  width:600px;height:400px;border-radius:50%;
-                  background:radial-gradient(ellipse,rgba(59,130,246,0.18) 0%,transparent 70%);
-                  pointer-events:none;"></div>
-
-      <div style="display:inline-flex;align-items:center;gap:0.5rem;
-                  background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.35);
-                  border-radius:100px;padding:0.35rem 1rem;margin-bottom:1.75rem;">
-        <div style="width:7px;height:7px;border-radius:50%;background:#3b82f6;
-                    box-shadow:0 0 8px #3b82f6;"></div>
-        <span style="font-size:0.75rem;font-weight:600;color:#93c5fd;letter-spacing:0.08em;">
-          AI · KOSPI 30 · 4중 리스크 방어
-        </span>
-      </div>
-
-      <div style="font-size:clamp(2rem,5vw,3.5rem);font-weight:900;color:#ffffff;
-                  letter-spacing:-0.04em;line-height:1.08;margin-bottom:1.25rem;">
-        감정을 배제한<br>
-        <span style="background:linear-gradient(90deg,#60a5fa,#a78bfa);
-                     -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-          완벽한 데이터 투자
-        </span>
-      </div>
-
-      <div style="font-size:1.125rem;color:#94a3b8;max-width:540px;margin:0 auto 2.5rem;
-                  line-height:1.7;font-weight:400;">
-        수면제 대신 AI를 켜두세요.<br>
-        <strong style="color:#cbd5e1;">1명의 비서실장</strong>과
-        <strong style="color:#cbd5e1;">4명의 전문 에이전트</strong>가
-        24시간 당신의 자산을 지키고 불려드립니다.
-      </div>
-
-      <div style="display:flex;justify-content:center;gap:2rem;flex-wrap:wrap;">
-        <div style="text-align:center;">
-          <div style="font-size:1.75rem;font-weight:800;color:#60a5fa;">4중</div>
-          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">리스크 방어막</div>
-        </div>
-        <div style="width:1px;background:#1e293b;"></div>
-        <div style="text-align:center;">
-          <div style="font-size:1.75rem;font-weight:800;color:#a78bfa;">5명</div>
-          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">AI 비서진</div>
-        </div>
-        <div style="width:1px;background:#1e293b;"></div>
-        <div style="text-align:center;">
-          <div style="font-size:1.75rem;font-weight:800;color:#34d399;">100%</div>
-          <div style="font-size:0.75rem;color:#64748b;margin-top:2px;">결정론적 판단</div>
-        </div>
-      </div>
-
-    </div>
-    """, unsafe_allow_html=True)
-
-    if _kakao_ok:
-        _components.html(_kakao_btn_html, height=120, scrolling=False)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 2 — Pain Point
-    # ══════════════════════════════════════════════════════════
-    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#0d1117;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       padding:4rem 2rem;color:#f1f5f9;}
-  .wrap{max-width:800px;margin:0 auto;text-align:center;}
-  .label{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-         color:#3b82f6;margin-bottom:1rem;}
-  .title{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
-         letter-spacing:-.03em;line-height:1.15;margin-bottom:1rem;}
-  .sub{font-size:.9rem;color:#64748b;margin-bottom:2.5rem;line-height:1.7;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;text-align:left;}
-  .card-bad{background:#1a0a0a;border:1px solid #3d1515;border-radius:16px;padding:1.75rem;}
-  .card-good{background:#020f0f;border:1px solid #0d3d3d;border-radius:16px;padding:1.75rem;}
-  .card-title{font-size:.9rem;font-weight:700;margin-bottom:1.25rem;}
-  .row{display:flex;gap:.6rem;align-items:flex-start;margin-bottom:.75rem;}
-  .mark{font-size:.8rem;font-weight:700;margin-top:1px;flex-shrink:0;}
-  .txt{color:#94a3b8;font-size:.875rem;line-height:1.5;}
-</style></head><body>
-<div class="wrap">
-  <div class="label">WHY ALPHA QUANT</div>
-  <div class="title">아직도 차트 앞에서<br>밤을 새우고 계신가요?</div>
-  <div class="sub">시세에 휘둘리고, 손실에 감정이 흔들리는 '틀리는 법'에서 벗어나세요.</div>
-  <div class="grid">
-    <div class="card-bad">
-      <div class="card-title" style="color:#f87171;">개인 투자자의 하루</div>
-      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">공포에 팔고 탐욕에 사는 뇌동매매</span></div>
-      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">밤새 차트 확인 → 수면 부족 → 판단력 저하</span></div>
-      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">손절 타이밍 놓쳐 손실 눈덩이처럼 불어남</span></div>
-      <div class="row"><span class="mark" style="color:#ef4444;">✕</span><span class="txt">자만 편향 — 몇 번의 성공에 과도한 베팅</span></div>
-    </div>
-    <div class="card-good">
-      <div class="card-title" style="color:#34d399;">Alpha Quant의 하루</div>
-      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">VIX · 이평선 · MACD 3중 분석으로 냉철한 레짐 판단</span></div>
-      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">목표 수익 달성 시 즉시 익절 후 당일 거래 종료</span></div>
-      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">스탑로스 자동 실행 — 감정 없이 룰대로만</span></div>
-      <div class="row"><span class="mark" style="color:#34d399;">✓</span><span class="txt">카카오톡으로 아침마다 오늘의 전략 브리핑 수신</span></div>
-    </div>
-  </div>
-</div>
-</body></html>""", height=500, scrolling=False)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 3 — AI 비서진 5명 소개 (Hover Flip 카드, iframe)
-    # ══════════════════════════════════════════════════════════
-    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#0a0f1e;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       padding:4rem 2rem;color:#f1f5f9;}
-  .lbl{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-       color:#a78bfa;margin-bottom:1rem;text-align:center;}
-  .ttl{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
-       letter-spacing:-.03em;text-align:center;}
-  .sbttl{font-size:.875rem;color:#475569;margin-top:.75rem;text-align:center;margin-bottom:2.5rem;}
-
-  /* Glassmorphism 카드 */
-  .card{
-    position:relative;overflow:hidden;cursor:pointer;
-    border-radius:16px;padding:1.5rem;margin-bottom:1rem;
-    background:rgba(148,163,184,0.06);
-    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-    border:1px solid rgba(255,255,255,0.08);
-    box-shadow:0 4px 24px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.06);
-    transition:transform .2s ease, box-shadow .2s ease;
-  }
-  .card:hover{
-    transform:translateY(-2px);
-    box-shadow:0 8px 32px rgba(0,0,0,0.45),inset 0 1px 0 rgba(255,255,255,0.08);
-  }
-
-  /* 앞면 */
-  .front{transition:opacity .2s ease;}
-
-  /* 팝업 오버레이 (뒷면 — 카드 위에 반투명으로 슬라이드업) */
-  .popup{
-    position:absolute;left:0;right:0;bottom:0;
-    padding:1.25rem 1.5rem;
-    background:rgba(10,12,24,0.88);
-    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-    border-top:1px solid rgba(255,255,255,0.09);
-    border-radius:0 0 16px 16px;
-    transform:translateY(100%);opacity:0;
-    transition:transform .25s cubic-bezier(.22,.68,0,1.2),opacity .2s ease;
-    pointer-events:none;
-  }
-  .card:hover .popup{transform:translateY(0);opacity:1;}
-
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
-  .tag{display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.1em;
-       text-transform:uppercase;padding:.18rem .55rem;border-radius:4px;margin-bottom:.6rem;
-       border:1px solid currentColor;}
-  .nm{font-size:1rem;font-weight:800;color:#e2e8f0;margin-bottom:.2rem;}
-  .sub{font-size:.73rem;font-weight:500;margin-bottom:.45rem;}
-  .hint{font-size:.72rem;color:#475569;line-height:1.5;}
-  .desc{font-size:.78rem;line-height:1.75;}
-
-  /* 카드별 상단 컬러 바 */
-  .bar{position:absolute;top:0;left:0;right:0;height:3px;border-radius:16px 16px 0 0;}
-</style></head><body>
-<div class="lbl">THE AI TEAM</div>
-<div class="ttl">1명의 비서실장 + 4명의 전문 에이전트</div>
-<div class="sbttl">카드에 마우스를 올리면 상세 전략을 확인할 수 있습니다</div>
-
-<!-- 비서실장 (풀 너비) -->
-<div class="card" style="border-color:rgba(167,139,250,.18);">
-  <div class="bar" style="background:linear-gradient(90deg,#7c3aed,#a78bfa);"></div>
-  <div class="front">
-    <div class="tag" style="color:#a78bfa;border-color:rgba(167,139,250,.3);">CHIEF OF STAFF</div>
-    <div class="nm">통합 비서실장</div>
-    <div class="sub" style="color:#a78bfa;">시장 레짐 분석 · 예산 배분 총괄</div>
-    <div class="hint">공격 · 방어 · 전시 — 3단계 레짐별 자동 전환</div>
-  </div>
-  <div class="popup">
-    <div class="desc" style="color:#c4b5fd;">
-      <b style="color:#e2e8f0;">VIX ≥ 30</b>이면 분석 무관하게 전시 레짐 강제 선포.
-      <b style="color:#e2e8f0;">이동평균 정배열 + MACD 동조</b> 시 공격 모드 전환.
-      레짐별로 4개 에이전트 예산 비율을 자동 재조정합니다.
-    </div>
-  </div>
-</div>
-
-<!-- 2×2 그리드 -->
-<div class="grid2">
-  <div class="card" style="border-color:rgba(96,165,250,.15);">
-    <div class="bar" style="background:linear-gradient(90deg,#1d4ed8,#60a5fa);"></div>
-    <div class="front">
-      <div class="tag" style="color:#60a5fa;border-color:rgba(96,165,250,.28);">VALUE FINDER</div>
-      <div class="nm">밸류파인더</div>
-      <div class="sub" style="color:#60a5fa;">가치 함정 판독기</div>
-      <div class="hint">마법공식 → 소르티노 &lt; 0.2 영구 배제 → F-스코어</div>
-    </div>
-    <div class="popup">
-      <div class="desc" style="color:#93c5fd;">
-        ROA+PER 마법공식으로 후보 선정 후,
-        <b style="color:#e2e8f0;">소르티노 지수 &lt; 0.2</b>인 종목은 영구 블랙리스트.
-        피오트로스키 F-스코어로 재무 부실 기업을 최종 차단합니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="border-color:rgba(52,211,153,.15);">
-    <div class="bar" style="background:linear-gradient(90deg,#065f46,#34d399);"></div>
-    <div class="front">
-      <div class="tag" style="color:#34d399;border-color:rgba(52,211,153,.28);">TREND RIDER</div>
-      <div class="nm">트렌드라이더</div>
-      <div class="sub" style="color:#34d399;">추세 파도타기</div>
-      <div class="hint">골든/데드크로스 + MACD 모멘텀 동시 확인</div>
-    </div>
-    <div class="popup">
-      <div class="desc" style="color:#6ee7b7;">
-        <b style="color:#e2e8f0;">골든크로스(5/20일선)</b>와 <b style="color:#e2e8f0;">MACD 상향 돌파</b>가
-        동시에 발생할 때만 진입하여 오신호를 최소화합니다.
-        추세가 꺾이는 조짐(데드크로스)에 즉각 이탈합니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="border-color:rgba(192,132,252,.15);">
-    <div class="bar" style="background:linear-gradient(90deg,#6d28d9,#c084fc);"></div>
-    <div class="front">
-      <div class="tag" style="color:#c084fc;border-color:rgba(192,132,252,.28);">SWING MASTER</div>
-      <div class="nm">스윙마스터</div>
-      <div class="sub" style="color:#c084fc;">박스권 방어자</div>
-      <div class="hint">볼린저 하단 돌파 + RSI 과매도 핀포인트</div>
-    </div>
-    <div class="popup">
-      <div class="desc" style="color:#d8b4fe;">
-        볼린저 밴드 하단 이탈 + RSI ≤ 30,
-        <b style="color:#e2e8f0;">두 조건이 동시에</b> 충족될 때만 역추세 진입.
-        횡보장과 박스권에서 꾸준한 수익을 창출합니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="border-color:rgba(248,113,113,.15);">
-    <div class="bar" style="background:linear-gradient(90deg,#991b1b,#f87171);"></div>
-    <div class="front">
-      <div class="tag" style="color:#f87171;border-color:rgba(248,113,113,.28);">MICRO SNIPER</div>
-      <div class="nm">마이크로스나이퍼</div>
-      <div class="sub" style="color:#f87171;">1분봉 초단타 스캘핑</div>
-      <div class="hint">정액 독립 운용 · 조기 퇴근 · 할루시네이션 방지</div>
-    </div>
-    <div class="popup">
-      <div class="desc" style="color:#fca5a5;">
-        시장 레짐과 무관하게 <b style="color:#e2e8f0;">정액(500만 원) 독립 예산</b>으로 운용.
-        ADX + BB%B + RSI + 스토캐스틱 4중 확인 후 진입.
-        목표 달성 시 <b style="color:#e2e8f0;">즉시 전량 익절 + 당일 퇴근</b>.
-      </div>
-    </div>
-  </div>
-</div>
-</body></html>""", height=980, scrolling=False)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 4 — 4중 보안 체계
-    # ══════════════════════════════════════════════════════════
-    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#060b14;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       padding:4rem 2rem;color:#f1f5f9;}
-  .wrap{max-width:680px;margin:0 auto;}
-  .lbl{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-       color:#ef4444;margin-bottom:.75rem;text-align:center;}
-  .ttl{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
-       letter-spacing:-.03em;text-align:center;}
-  .sub{font-size:.875rem;color:#475569;margin-top:.75rem;margin-bottom:2.5rem;text-align:center;}
-  .row{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.25rem;}
-  .num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
-       justify-content:center;font-weight:800;font-size:.875rem;flex-shrink:0;}
-  .nm{font-weight:700;color:#f1f5f9;margin-bottom:.25rem;}
-  .desc{font-size:.875rem;color:#64748b;line-height:1.6;}
-</style></head><body>
-<div class="wrap">
-  <div class="lbl">IRONCLAD DEFENSE</div>
-  <div class="ttl">4중 철통 방어 시스템</div>
-  <div class="sub">돈이 걸린 문제입니다. 단 1원도 허투루 잃지 않습니다.</div>
-  <div class="row">
-    <div class="num" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);">1</div>
-    <div>
-      <div class="nm">VIX 서킷브레이커</div>
-      <div class="desc">공포지수(VIX)가 30을 돌파하면 분석 결과와 무관하게 <b style="color:#94a3b8;">전시 레짐 강제 선포</b>. 모든 신규 진입을 차단하고 관망 태세로 전환합니다.</div>
-    </div>
-  </div>
-  <div class="row">
-    <div class="num" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);">2</div>
-    <div>
-      <div class="nm">일일 MDD 한도</div>
-      <div class="desc">하루 최대 손실 한도(-5%) 도달 시 <b style="color:#94a3b8;">모든 포지션 즉시 청산</b>하고 당일 거래를 완전히 종료합니다.</div>
-    </div>
-  </div>
-  <div class="row">
-    <div class="num" style="background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3);">3</div>
-    <div>
-      <div class="nm">물리적 킬스위치</div>
-      <div class="desc">대시보드 내 <b style="color:#94a3b8;">Kill Switch 버튼 1회 클릭</b>으로 모든 자동 거래가 즉시 중단되고, 전량 현금 전환 후 카카오톡 긴급 보고가 발송됩니다.</div>
-    </div>
-  </div>
-  <div class="row">
-    <div class="num" style="background:rgba(20,184,166,.15);color:#2dd4bf;border:1px solid rgba(20,184,166,.3);">4</div>
-    <div>
-      <div class="nm">개별 종목 스탑로스 / 익절</div>
-      <div class="desc">종목별 손절(-3%)과 익절(+5%) 라인을 <b style="color:#94a3b8;">사전 하드코딩</b>하여 어떤 상황에서도 기계적으로 실행. 인간의 감정 개입 불가.</div>
-    </div>
-  </div>
-</div>
-</body></html>""", height=580, scrolling=False)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 5 — 카카오 투명성 보고
-    # ══════════════════════════════════════════════════════════
-    _components.html("""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#0d1117;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       padding:4rem 2rem;color:#f1f5f9;}
-  .wrap{max-width:800px;margin:0 auto;}
-  .lbl{font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-       color:#FEE500;margin-bottom:.75rem;text-align:center;}
-  .ttl{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;color:#f1f5f9;
-       letter-spacing:-.03em;text-align:center;}
-  .sub{font-size:.875rem;color:#475569;margin-top:.75rem;margin-bottom:2.5rem;text-align:center;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
-  .card{border-radius:14px;padding:1.5rem;}
-  .ctag{display:inline-block;font-size:.65rem;font-weight:700;letter-spacing:.08em;
-        text-transform:uppercase;padding:.2rem .55rem;border-radius:4px;margin-bottom:.6rem;}
-  .cnm{font-weight:700;color:#f1f5f9;margin-bottom:.4rem;font-size:.95rem;}
-  .cdesc{font-size:.8rem;color:#475569;line-height:1.6;}
-</style></head><body>
-<div class="wrap">
-  <div class="lbl">KAKAO BRIEFING</div>
-  <div class="ttl">카카오톡으로 받는 4대 보고서</div>
-  <div class="sub">개발자용 암호가 아닌, 사람의 언어로 보고받으세요.</div>
-  <div class="grid">
-    <div class="card" style="background:#111827;border:1px solid #1e293b;">
-      <div class="ctag" style="background:rgba(96,165,250,.12);color:#60a5fa;">MORNING</div>
-      <div class="cnm">아침 정기 브리핑</div>
-      <div class="cdesc">매일 장 시작 전, 오늘의 시장 모드와 자산 배분 계획을 한국어 자연어로 전달합니다.</div>
-    </div>
-    <div class="card" style="background:#111827;border:1px solid #1e293b;">
-      <div class="ctag" style="background:rgba(52,211,153,.12);color:#34d399;">REAL-TIME</div>
-      <div class="cnm">실시간 거래 알림</div>
-      <div class="cdesc">에이전트가 매수/매도할 때마다 종목명, 금액, 쉬운 이유 설명이 즉시 카카오톡으로 전송됩니다.</div>
-    </div>
-    <div class="card" style="background:linear-gradient(135deg,#111827,#1a2009);border:1px solid #2d4a12;">
-      <div class="ctag" style="background:rgba(163,230,53,.12);color:#a3e635;">PROFIT LOCK</div>
-      <div class="cnm">조기 퇴근 알림</div>
-      <div class="cdesc">"목표 3.0% → 실제 달성 3.2%" 달성 즉시 수익 락인 후 카카오 알림 발송. Ground Truth 교차 검증 포함.</div>
-    </div>
-    <div class="card" style="background:linear-gradient(135deg,#111827,#200a0a);border:1px solid #4a1212;">
-      <div class="ctag" style="background:rgba(239,68,68,.12);color:#f87171;">EMERGENCY</div>
-      <div class="cnm">긴급 통제 보고</div>
-      <div class="cdesc">킬스위치 발동 또는 MDD 한도 도달 시 즉각 알림. 전량 청산 완료 여부 포함.</div>
-    </div>
-  </div>
-</div>
-</body></html>""", height=560, scrolling=False)
-
-    # ══════════════════════════════════════════════════════════
-    # SECTION 6 — Bottom CTA
-    # ══════════════════════════════════════════════════════════
-    _bottom_btn = f"""
-      <div style="margin-top:2rem;display:flex;justify-content:center;">
-        <a href="{_auth_url}" target="_top"
-           style="display:inline-flex;align-items:center;gap:10px;
-                  background:#FEE500;color:#000;font-size:15px;font-weight:800;
-                  padding:14px 36px;border-radius:12px;cursor:pointer;
-                  box-shadow:0 4px 20px rgba(254,229,0,0.35);
-                  text-decoration:none;letter-spacing:-0.01em;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="#000">
-            <path d="M12 3C6.477 3 2 6.582 2 11c0 2.818 1.63 5.3 4.1 6.863l-.9 3.337
-                     a.5.5 0 0 0 .72.55l3.9-2.57A11.6 11.6 0 0 0 12 19c5.523 0
-                     10-3.582 10-8s-4.477-8-10-8z"/>
-          </svg>
-          카카오 계정으로 3초 만에 시작하기
-        </a>
-      </div>
-    """ if _kakao_ok else ""
-
-    st.markdown(f"""
-    <div style="background:linear-gradient(160deg,#0a0f1e,#0d1a3a);
-                padding:5rem 2rem 4rem;text-align:center;border-top:1px solid #1e293b;">
-      <div style="font-size:clamp(1.25rem,3vw,1.875rem);font-weight:800;color:#f1f5f9;
-                  letter-spacing:-0.03em;margin-bottom:0.75rem;">
-        더 이상 시장의 파도에<br>감정을 낭비하지 마십시오.
-      </div>
-      <div style="font-size:1rem;color:#475569;margin-bottom:0;">
-        지금 바로 당신만의 퀀트 비서실장을 채용하세요.
-      </div>
-      {_bottom_btn}
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Footer
+    """이메일 + 비밀번호 로그인 / 회원가입 페이지"""
     st.markdown("""
-    <div style="background:#060b14;padding:2rem;text-align:center;border-top:1px solid #0f172a;">
+    <style>
+    [data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:#060b14!important;}
+    [data-testid="stMainBlockContainer"]{padding-top:0!important;}
+    </style>""", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#060b14 0%,#0d1a3a 100%);
+                padding:3rem 1rem 2rem;text-align:center;">
+      <div style="font-size:2.8rem;font-weight:900;color:#3b82f6;
+                  letter-spacing:-0.05em;line-height:1;">⚡ Alpha Quant</div>
+      <div style="font-size:1rem;color:#475569;margin-top:0.5rem;">
+        AI 퀀트 투자 자동 운용 플랫폼
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    _c_l, _c_m, _c_r = st.columns([1, 2, 1])
+    with _c_m:
+        _is_first = db.count_users() == 0
+        _tab_login, _tab_reg = st.tabs(["🔑 로그인", "📝 회원가입"])
+
+        with _tab_login:
+            with st.form("login_form"):
+                _li_email = st.text_input("이메일", placeholder="example@email.com")
+                _li_pw    = st.text_input("비밀번호", type="password", placeholder="비밀번호 입력")
+                _li_sub   = st.form_submit_button("로그인", use_container_width=True, type="primary")
+            if _li_sub:
+                if not _li_email or not _li_pw:
+                    st.error("이메일과 비밀번호를 입력해주세요.")
+                else:
+                    _found = db.login_user(_li_email, _li_pw)
+                    if _found is None:
+                        st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
+                    else:
+                        st.session_state["user"]      = _found
+                        st.session_state["logged_in"] = True
+                        if _found.get("is_approved"):
+                            st.session_state["pending_approval"] = False
+                            st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_found["id"])
+                        else:
+                            st.session_state["pending_approval"] = True
+                        st.rerun()
+
+        with _tab_reg:
+            if _is_first:
+                st.success("🎉 첫 번째 가입 — 자동으로 관리자가 됩니다.")
+            else:
+                st.info("📋 가입 후 관리자 승인을 받으면 서비스를 이용할 수 있습니다.")
+            with st.form("register_form"):
+                _rg_name  = st.text_input("이름", placeholder="홍길동")
+                _rg_email = st.text_input("이메일", placeholder="example@email.com")
+                _rg_pw    = st.text_input("비밀번호 (8자 이상)", type="password")
+                _rg_pw2   = st.text_input("비밀번호 확인", type="password")
+                _rg_sub   = st.form_submit_button("회원가입", use_container_width=True, type="primary")
+            if _rg_sub:
+                if not _rg_name or not _rg_email or not _rg_pw:
+                    st.error("모든 항목을 입력해주세요.")
+                elif len(_rg_pw) < 8:
+                    st.error("비밀번호는 8자 이상이어야 합니다.")
+                elif _rg_pw != _rg_pw2:
+                    st.error("비밀번호가 일치하지 않습니다.")
+                else:
+                    try:
+                        _nu = db.register_user(_rg_email, _rg_pw, _rg_name)
+                        if _nu.get("is_admin"):
+                            st.session_state["user"]             = _nu
+                            st.session_state["logged_in"]        = True
+                            st.session_state["pending_approval"] = False
+                            st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_nu["id"])
+                            st.rerun()
+                        else:
+                            st.success("🎉 회원가입 완료! 관리자 승인 후 로그인하세요.")
+                    except ValueError as _ve:
+                        st.error(str(_ve))
+
+    st.markdown("""
+    <div style="background:#060b14;padding:1.5rem;text-align:center;
+                margin-top:3rem;border-top:1px solid #0f172a;">
       <div style="font-size:0.75rem;color:#334155;line-height:1.8;">
         Alpha Quant · AI 퀀트 자동 운용 플랫폼 · 모의투자 전용 시스템<br>
-        본 서비스는 투자 권유가 아닌 알고리즘 연구 목적의 모의 시스템입니다.<br>
-        API 키는 암호화 저장되며 외부에 공유되지 않습니다.
+        본 서비스는 투자 권유가 아닌 알고리즘 연구 목적의 모의 시스템입니다.
       </div>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
 
 # 로그인 체크 — 미인증 시 로그인 페이지 표시 후 중단
 if not st.session_state.get("logged_in"):
     _show_login_page()
+    st.stop()
+
+# 승인 대기 중인 사용자
+if st.session_state.get("pending_approval"):
+    _pa_user = st.session_state.get("user", {})
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:#060b14!important;}
+    </style>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="max-width:480px;margin:5rem auto;text-align:center;padding:2.5rem;
+                background:#0d1a3a;border:1px solid #1e3a5f;border-radius:20px;">
+      <div style="font-size:3rem;margin-bottom:1rem;">⏳</div>
+      <div style="font-size:1.5rem;font-weight:800;color:#f1f5f9;margin-bottom:0.75rem;">승인 대기 중</div>
+      <div style="color:#64748b;font-size:0.9rem;line-height:1.7;">
+        <b style="color:#3b82f6">{name}</b>님, 회원가입이 완료되었습니다.<br>
+        관리자가 계정을 승인하면 서비스를 이용할 수 있습니다.
+      </div>
+    </div>""".format(name=_pa_user.get("name", "사용자")), unsafe_allow_html=True)
+    _pa_c1, _pa_c2 = st.columns(2)
+    with _pa_c1:
+        if st.button("🔄 승인 확인", use_container_width=True, key="pending_refresh"):
+            _fresh = db.get_user_by_id(_pa_user.get("id", 0))
+            if _fresh and _fresh.get("is_approved"):
+                st.session_state["user"]             = _fresh
+                st.session_state["pending_approval"] = False
+                st.session_state.config["system"]["mode"] = QuantDatabase.user_mode(_fresh["id"])
+                st.rerun()
+            else:
+                st.info("아직 승인되지 않았습니다.")
+    with _pa_c2:
+        if st.button("로그아웃", use_container_width=True, key="pending_logout"):
+            for _k in ["logged_in", "user", "pending_approval"]:
+                st.session_state.pop(_k, None)
+            st.rerun()
     st.stop()
 
 _admin_user: dict = st.session_state["user"]
@@ -4986,6 +4583,35 @@ st.markdown(
 if _u.get("is_admin") and len(tabs) >= 10:
     with tabs[9]:
         st.markdown("## 👥 사용자 관리")
+
+        # ── 승인 대기 섹션 ────────────────────────────────────
+        _pending_users = db.get_pending_users()
+        if _pending_users:
+            st.markdown(
+                f"<div style='background:#2d1b00;border:1px solid #b45309;border-radius:10px;"
+                f"padding:1rem 1.25rem;margin-bottom:1.5rem;'>"
+                f"<b style='color:#f59e0b'>⏳ 승인 대기 {len(_pending_users)}명</b></div>",
+                unsafe_allow_html=True,
+            )
+            for _pu in _pending_users:
+                _puc1, _puc2, _puc3 = st.columns([3, 1, 1])
+                with _puc1:
+                    st.markdown(
+                        f"**{_pu['name']}** &nbsp;·&nbsp; {_pu['email']} &nbsp;·&nbsp; "
+                        f"<span style='color:#64748b;font-size:0.8rem'>가입 {str(_pu.get('created_at',''))[:10]}</span>",
+                        unsafe_allow_html=True,
+                    )
+                with _puc2:
+                    if st.button("✅ 승인", key=f"approve_{_pu['id']}", use_container_width=True, type="primary"):
+                        db.approve_user(_pu["id"])
+                        st.success(f"{_pu['name']}님 승인 완료!")
+                        st.rerun()
+                with _puc3:
+                    if st.button("❌ 거절", key=f"reject_{_pu['id']}", use_container_width=True):
+                        db.reject_user(_pu["id"])
+                        st.warning(f"{_pu['name']}님 계정 삭제")
+                        st.rerun()
+            st.markdown("---")
         st.markdown(
             "<p style='color:#718096;font-size:0.9rem;margin-top:-0.5rem'>"
             "가입 회원을 조회하고 설정을 관리합니다. 관리자만 접근 가능합니다.</p>",
